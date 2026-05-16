@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Codex Meter",
+  "version": "0.1.0",
+  "description": "Local Codex quota and token analytics for the ChatGPT Codex analytics page.",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Codex Meter",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": [
+        "icons.js",
+        "shared/config.js",
+        "domain/usage-domain.js",
+        "infrastructure/chatgpt-client.js",
+        "infrastructure/report-repository.js",
+        "application/report-service.js",
+        "content.js"
+      ],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

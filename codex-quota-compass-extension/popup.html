@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex Meter</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="top">
+        <div id="brandIcon" class="brand-icon" aria-hidden="true"></div>
+        <div>
+          <h1>Codex Meter</h1>
+          <p data-i18n="subtitle">Codex 用量快照和本地历史</p>
+        </div>
+      </header>
+
+      <section id="status" class="status" data-i18n="status.loading">读取本地快照...</section>
+
+      <section class="metric-grid" aria-label="Latest summary">
+        <article class="metric">
+          <div class="metric-head"><span class="metric-icon" data-icon="coins"></span><span data-i18n="metrics.credits">本周期已用 Credits</span></div>
+          <strong id="credits">--</strong>
+        </article>
+        <article class="metric">
+          <div class="metric-head"><span class="metric-icon" data-icon="cpu"></span><span data-i18n="metrics.tokens">本周期总 Tokens</span></div>
+          <strong id="tokens">--</strong>
+        </article>
+        <article class="metric">
+          <div class="metric-head"><span class="metric-icon" data-icon="layers"></span><span data-i18n="metrics.cache">输入缓存命中率</span></div>
+          <strong id="cacheRatio">--</strong>
+        </article>
+        <article class="metric">
+          <div class="metric-head"><span class="metric-icon" data-icon="wallet"></span><span data-i18n="metrics.usd">本周期折算金额</span></div>
+          <strong id="usdEstimate">--</strong>
+        </article>
+      </section>
+
+      <section>
+        <h2><span class="metric-icon" data-icon="database"></span><span data-i18n="historyTitle">历史快照</span></h2>
+        <div id="snapshots" class="snapshots"></div>
+      </section>
+
+      <footer class="actions">
+        <button id="openAnalytics" type="button"><span data-icon="external"></span><span data-i18n="actions.open">打开页面</span></button>
+        <button id="refresh" type="button" class="primary"><span data-icon="refresh"></span><span data-i18n="actions.refresh">刷新</span></button>
+        <button id="exportJson" type="button"><span data-icon="fileJson"></span>JSON</button>
+        <button id="clearHistory" type="button"><span data-icon="trash"></span><span data-i18n="actions.clear">清空</span></button>
+      </footer>
+    </main>
+    <script src="icons.js"></script>
+    <script src="shared/config.js"></script>
+    <script src="domain/usage-domain.js"></script>
+    <script src="infrastructure/report-repository.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
