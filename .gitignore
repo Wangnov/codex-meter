@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Packaged Chrome extension artifacts
+*.zip
+
+# Local editor and temporary files
+*.swp
+*.tmp

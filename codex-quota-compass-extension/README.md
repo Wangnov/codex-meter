@@ -25,7 +25,7 @@ The extension does not store the ChatGPT Web bearer token. It extracts the token
 4. Select this folder:
 
 ```text
-/Users/wangnov/Documents/Codex/2026-05-16/userscript-name-codex-quota-compass-visual/codex-quota-compass-extension
+/Users/wangnov/codex-meter/codex-quota-compass-extension
 ```
 
 ## Use
@@ -37,6 +37,7 @@ The extension does not store the ChatGPT Web bearer token. It extracts the token
 ## Notes
 
 - See `ARCHITECTURE.md` for the buildless DDD-style layer split.
+- Licensed under the MIT License.
 - This depends on private ChatGPT Web endpoints and may need updates if OpenAI changes the page internals.
 - This is intentionally local-only. Keep it unpacked unless you want to maintain extension packaging and review.
 - The button uses page structure first, then localized text, then a fixed-position fallback. If it still does not appear, refresh the analytics tab after loading the extension.
