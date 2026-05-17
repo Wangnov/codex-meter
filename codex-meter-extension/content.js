@@ -1,7 +1,8 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.9";
+  const CONTENT_SCRIPT_VERSION = "0.3.0";
+  const ENABLE_CHART_TOOLTIP_ENHANCER = false;
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -927,12 +928,17 @@
     if (visible) {
       ensureUi();
       ensureDetailButton();
-      installChartTooltipEnhancer();
-      warmChartReport();
+      if (ENABLE_CHART_TOOLTIP_ENHANCER) {
+        installChartTooltipEnhancer();
+        warmChartReport();
+      } else {
+        clearChartTooltipDetails();
+      }
     }
     if (!visible) {
       closePanel();
       removeDetailButton();
+      clearChartTooltipDetails();
       warmChartReport.didSchedule = false;
     }
   };
@@ -952,7 +958,7 @@
     try {
       latestReport = await reportService.refreshReport();
       renderReport(latestReport);
-      scheduleChartTooltipEnhance();
+      if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
       return latestReport;
     } catch (error) {
       setStatus(error.message || String(error), "error");
@@ -1223,7 +1229,7 @@
         .refreshReport()
         .then((report) => {
           latestReport = report;
-          scheduleChartTooltipEnhance();
+          if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
           return report;
         })
         .catch(() => latestReport)
@@ -1249,6 +1255,7 @@
   };
 
   const installChartTooltipEnhancer = () => {
+    if (!ENABLE_CHART_TOOLTIP_ENHANCER) return;
     if (installChartTooltipEnhancer.didInstall) return;
     installChartTooltipEnhancer.didInstall = true;
     document.addEventListener(
@@ -1263,6 +1270,7 @@
   };
 
   const scheduleChartTooltipEnhance = () => {
+    if (!ENABLE_CHART_TOOLTIP_ENHANCER) return;
     if (!isAnalyticsRoute()) return;
     if (chartTooltipFrame) return;
     chartTooltipFrame = requestAnimationFrame(() => {
@@ -1625,14 +1633,26 @@
   const installRouteObserver = () => {
     if (installRouteObserver.didInstall) return;
     installRouteObserver.didInstall = true;
+    let lastRoute = `${location.pathname}${location.search}${location.hash}`;
     let scheduled = false;
     const notify = () => {
       if (scheduled) return;
       scheduled = true;
-      requestAnimationFrame(() => {
+      window.setTimeout(() => {
         scheduled = false;
+        lastRoute = `${location.pathname}${location.search}${location.hash}`;
         updateVisibility();
-      });
+      }, 120);
+    };
+    const poll = () => {
+      const route = `${location.pathname}${location.search}${location.hash}`;
+      const routeChanged = route !== lastRoute;
+      const hasButton = Boolean(document.getElementById(IDS.button));
+      const needsButton = isAnalyticsRoute() && !hasButton;
+      const staleButton = !isAnalyticsRoute() && hasButton;
+      if (!routeChanged && !needsButton && !staleButton) return;
+      lastRoute = route;
+      notify();
     };
     const patch = (methodName) => {
       const original = history[methodName];
@@ -1646,27 +1666,10 @@
     patch("replaceState");
     window.addEventListener("popstate", notify);
     window.__codexMeterMutationObserver?.disconnect?.();
-    window.__codexMeterMutationObserver = new MutationObserver((mutations) => {
-      const onlyOwnMutations = mutations.every((mutation) => {
-        const target = mutation.target instanceof Element ? mutation.target : null;
-        const ownsTarget = target?.closest?.(`#${IDS.overlay}, #${IDS.button}, .cqc-chart-tooltip-detail`);
-        const ownsNodes = [...mutation.addedNodes, ...mutation.removedNodes].every((node) => {
-          if (!(node instanceof Element)) return true;
-          return (
-            node.id === IDS.overlay ||
-            node.id === IDS.button ||
-            node.classList?.contains("cqc-chart-tooltip-detail") ||
-            Boolean(node.closest?.(`#${IDS.overlay}, #${IDS.button}, .cqc-chart-tooltip-detail`))
-          );
-        });
-        return ownsTarget || ownsNodes;
-      });
-      if (!onlyOwnMutations) notify();
-    });
-    window.__codexMeterMutationObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    });
+    window.__codexMeterMutationObserver = null;
+    window.clearInterval(window.__codexMeterRouteInterval);
+    window.__codexMeterRouteInterval = window.setInterval(poll, 1200);
+    window.addEventListener("visibilitychange", poll);
   };
 
   const init = () => {
