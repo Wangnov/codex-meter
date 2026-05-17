@@ -346,6 +346,42 @@
   line-height: 18px;
 }
 
+.cqc-chart-tooltip-detail {
+  min-width: 260px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cqc-border);
+  color: var(--cqc-text);
+  font: 13px/18px var(--cqc-font);
+}
+
+.cqc-chart-tooltip-title {
+  margin-bottom: 8px;
+  color: var(--cqc-text);
+  font-weight: 600;
+}
+
+.cqc-chart-tooltip-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 18px;
+}
+
+.cqc-chart-tooltip-grid span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cqc-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cqc-chart-tooltip-grid strong {
+  color: var(--cqc-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .cqc-section-title {
   display: flex;
   align-items: center;

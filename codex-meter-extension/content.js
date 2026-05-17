@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.3";
+  const CONTENT_SCRIPT_VERSION = "0.2.4";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -17,6 +17,8 @@
 
   let latestReport = null;
   let isRunning = false;
+  let passiveReportPromise = null;
+  let chartTooltipFrame = 0;
 
   const MESSAGES = {
     "zh-CN": {
@@ -50,7 +52,7 @@
         credits: ["本周期已用 Credits", "按每日用量明细加总。"],
         tokens: ["本周期总 Tokens", "按每日用量明细汇总的全部 Tokens。"],
         projected: ["推算周期总 Credits", "用当前已用比例反推整周期额度。"],
-        projectedUnavailable: ["明细不足", "需要官方剩余额度比例和每日 Credits 明细同时可用。当前每日明细还没有可用于反推的 Credits。"],
+        projectedUnavailable: ["明细不足", "每日 Credits 暂无可用数据。"],
         cache: ["输入缓存命中率", "缓存输入占全部输入 Tokens 的比例。"],
         usd: ["本周期折算金额", "按 1000 Credits = US$40 估算。"],
       },
@@ -97,7 +99,7 @@
         credits: ["本週期已用 Credits", "按每日用量明細加總。"],
         tokens: ["本週期總 Tokens", "按每日用量明細彙總的全部 Tokens。"],
         projected: ["推算週期總 Credits", "用目前已用比例反推整個週期額度。"],
-        projectedUnavailable: ["明細不足", "需要官方剩餘額度比例和每日 Credits 明細同時可用。目前每日明細尚未有可用於反推的 Credits。"],
+        projectedUnavailable: ["明細不足", "每日 Credits 暫無可用資料。"],
         cache: ["輸入快取命中率", "快取輸入佔全部輸入 Tokens 的比例。"],
         usd: ["本週期折算金額", "按 1000 Credits = US$40 估算。"],
       },
@@ -144,7 +146,7 @@
         credits: ["本週期已用 Credits", "按每日用量明細加總。"],
         tokens: ["本週期總 Tokens", "按每日用量明細彙總所有 Tokens。"],
         projected: ["推算週期總 Credits", "用目前已用比例反推整個週期額度。"],
-        projectedUnavailable: ["明細不足", "需要官方剩餘額度比例和每日 Credits 明細同時可用。目前每日明細未有可用於反推的 Credits。"],
+        projectedUnavailable: ["明細不足", "每日 Credits 暫無可用資料。"],
         cache: ["輸入快取命中率", "快取輸入佔全部輸入 Tokens 的比例。"],
         usd: ["本週期折算金額", "按 1000 Credits = US$40 估算。"],
       },
@@ -191,7 +193,7 @@
         credits: ["Credits used this cycle", "Totaled from the daily usage details."],
         tokens: ["Total Tokens this cycle", "All Tokens summed from daily usage details."],
         projected: ["Projected cycle Credits", "Estimated from current usage and remaining quota."],
-        projectedUnavailable: ["Pending", "This estimate needs both the official quota percentage and daily Credits details. The daily details do not yet include usable Credits."],
+        projectedUnavailable: ["Pending", "Daily Credits are not available yet."],
         cache: ["Input cache hit rate", "Cached input as a share of all input Tokens."],
         usd: ["Estimated cycle value", "Estimated at US$40 per 1000 Credits."],
       },
@@ -238,7 +240,7 @@
         credits: ["このサイクルで使用した Credits", "日別の使用量明細から合計しています。"],
         tokens: ["このサイクルの合計 Tokens", "日別の使用量明細からすべての Tokens を合計しています。"],
         projected: ["推定サイクル総 Credits", "現在の使用率と残り割当から推定しています。"],
-        projectedUnavailable: ["保留中", "この推定には公式の割当比率と日別 Credits 明細の両方が必要です。日別明細にはまだ反推に使える Credits がありません。"],
+        projectedUnavailable: ["保留中", "日別 Credits はまだ利用できません。"],
         cache: ["入力キャッシュヒット率", "全入力 Tokens に占めるキャッシュ済み入力の割合です。"],
         usd: ["推定サイクル金額", "1000 Credits = US$40 として推定しています。"],
       },
@@ -285,7 +287,7 @@
         credits: ["Credits utilisés ce cycle", "Total calculé à partir des détails quotidiens."],
         tokens: ["Total des Tokens ce cycle", "Tous les Tokens additionnés depuis les détails quotidiens."],
         projected: ["Credits estimés pour le cycle", "Estimés à partir de l’utilisation actuelle et du quota restant."],
-        projectedUnavailable: ["En attente", "Cette estimation nécessite à la fois le pourcentage de quota officiel et les détails quotidiens en Credits. Les détails quotidiens ne contiennent pas encore de Credits utilisables."],
+        projectedUnavailable: ["En attente", "Les Credits quotidiens ne sont pas encore disponibles."],
         cache: ["Taux de cache des entrées", "Part des entrées mises en cache dans tous les Tokens d’entrée."],
         usd: ["Valeur estimée du cycle", "Estimation sur la base de 1000 Credits = 40 US$."],
       },
@@ -340,7 +342,7 @@
         credits: ["Credits использовано в этом цикле", "Сумма по ежедневной детализации."],
         tokens: ["Всего Tokens в этом цикле", "Все Tokens, суммированные по ежедневной детализации."],
         projected: ["Прогноз Credits за цикл", "Оценка по текущему использованию и оставшейся квоте."],
-        projectedUnavailable: ["Ожидание", "Для оценки нужны официальный процент квоты и ежедневная детализация Credits. В ежедневных данных пока нет Credits, пригодных для расчета."],
+        projectedUnavailable: ["Ожидание", "Ежедневные Credits пока недоступны."],
         cache: ["Доля попаданий кэша ввода", "Кэшированный ввод как доля всех входных Tokens."],
         usd: ["Оценочная стоимость цикла", "Оценка из расчета US$40 за 1000 Credits."],
       },
@@ -387,7 +389,7 @@
         credits: ["Credits usados en este ciclo", "Total calculado a partir de los detalles diarios."],
         tokens: ["Tokens totales en este ciclo", "Todos los Tokens sumados desde los detalles diarios."],
         projected: ["Credits estimados del ciclo", "Estimado a partir del uso actual y la cuota restante."],
-        projectedUnavailable: ["Pendiente", "Esta estimación necesita tanto el porcentaje oficial de cuota como los detalles diarios de Credits. Los detalles diarios aún no incluyen Credits utilizables."],
+        projectedUnavailable: ["Pendiente", "Los Credits diarios aún no están disponibles."],
         cache: ["Tasa de aciertos de caché de entrada", "Entradas en caché como parte de todos los Tokens de entrada."],
         usd: ["Valor estimado del ciclo", "Estimado a US$40 por cada 1000 Credits."],
       },
@@ -434,7 +436,7 @@
         credits: ["In diesem Zyklus genutzte Credits", "Aus den täglichen Nutzungsdetails summiert."],
         tokens: ["Gesamte Tokens in diesem Zyklus", "Alle Tokens aus den täglichen Details summiert."],
         projected: ["Geschätzte Credits für den Zyklus", "Aus aktueller Nutzung und verbleibendem Kontingent geschätzt."],
-        projectedUnavailable: ["Ausstehend", "Diese Schätzung braucht sowohl den offiziellen Kontingent-Prozentsatz als auch tägliche Credits-Details. Die täglichen Details enthalten noch keine nutzbaren Credits."],
+        projectedUnavailable: ["Ausstehend", "Tägliche Credits sind noch nicht verfügbar."],
         cache: ["Cache-Trefferquote für Eingaben", "Zwischengespeicherte Eingaben als Anteil aller Eingabe-Tokens."],
         usd: ["Geschätzter Zykluswert", "Geschätzt mit US$40 pro 1000 Credits."],
       },
@@ -905,6 +907,7 @@
     if (visible) {
       ensureUi();
       ensureDetailButton();
+      installChartTooltipEnhancer();
     }
     if (!visible) {
       closePanel();
@@ -927,6 +930,7 @@
     try {
       latestReport = await reportService.refreshReport();
       renderReport(latestReport);
+      scheduleChartTooltipEnhance();
       return latestReport;
     } catch (error) {
       setStatus(error.message || String(error), "error");
@@ -1151,6 +1155,206 @@
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const ensurePassiveReport = () => {
+    if (latestReport) return Promise.resolve(latestReport);
+    if (isRunning || !isAnalyticsRoute()) return Promise.resolve(null);
+    if (!passiveReportPromise) {
+      passiveReportPromise = reportService
+        .refreshReport()
+        .then((report) => {
+          latestReport = report;
+          return report;
+        })
+        .catch(() => null)
+        .finally(() => {
+          passiveReportPromise = null;
+        });
+    }
+    return passiveReportPromise;
+  };
+
+  const installChartTooltipEnhancer = () => {
+    if (installChartTooltipEnhancer.didInstall) return;
+    installChartTooltipEnhancer.didInstall = true;
+    document.addEventListener("pointermove", scheduleChartTooltipEnhance, { passive: true });
+    document.addEventListener("pointerenter", scheduleChartTooltipEnhance, {
+      capture: true,
+      passive: true,
+    });
+    window.__codexMeterTooltipObserver?.disconnect?.();
+    window.__codexMeterTooltipObserver = new MutationObserver(scheduleChartTooltipEnhance);
+    window.__codexMeterTooltipObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  };
+
+  const scheduleChartTooltipEnhance = () => {
+    if (!isAnalyticsRoute()) return;
+    if (chartTooltipFrame) return;
+    chartTooltipFrame = requestAnimationFrame(() => {
+      chartTooltipFrame = 0;
+      enhanceChartTooltip();
+    });
+  };
+
+  const enhanceChartTooltip = () => {
+    const tooltip = findOfficialChartTooltip();
+    if (!tooltip) return;
+    if (!latestReport) {
+      ensurePassiveReport().then((report) => {
+        if (report) scheduleChartTooltipEnhance();
+      });
+      return;
+    }
+
+    const rows = rowsForTooltipText(elementText(tooltip), latestReport.dailyList);
+    if (!rows.length) return;
+
+    const key = rows.map((row) => row.date).join(",");
+    const existing = tooltip.querySelector(":scope > .cqc-chart-tooltip-detail");
+    if (existing?.dataset.key === key) return;
+
+    const detail = existing || document.createElement("div");
+    detail.className = "cqc-chart-tooltip-detail";
+    detail.dataset.key = key;
+    detail.innerHTML = renderChartTooltipDetail(rows);
+    if (!existing) tooltip.appendChild(detail);
+  };
+
+  const findOfficialChartTooltip = () => {
+    const selectors = [
+      ".recharts-tooltip-wrapper",
+      "[role='tooltip']",
+      "[class*='tooltip']",
+      "[class*='Tooltip']",
+    ].join(",");
+    const directCandidates = [...document.querySelectorAll(selectors)];
+    const fallbackCandidates = directCandidates.length
+      ? []
+      : [...document.querySelectorAll("main div")]
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width >= 180 && rect.width <= 520 && rect.height >= 80 && rect.height <= 360;
+          })
+          .slice(-80);
+    return [...directCandidates, ...fallbackCandidates]
+      .filter(isVisibleElement)
+      .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
+      .filter((element) => {
+        const text = elementText(element);
+        return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
+      })
+      .sort((a, b) => {
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        return ar.width * ar.height - br.width * br.height;
+      })[0] || null;
+  };
+
+  const hasTooltipDate = (text) => {
+    if (!text) return false;
+    if (!latestReport?.dailyList?.length) {
+      return (
+        /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(text) ||
+        /\b\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?\b/.test(text) ||
+        /\b\d{1,2}月\d{1,2}日\b/.test(text)
+      );
+    }
+    return latestReport?.dailyList?.some((row) =>
+      dateVariants(row.date).some((variant) => normalizedText(text).includes(normalizedText(variant))),
+    );
+  };
+
+  const rowsForTooltipText = (text, rows) => {
+    if (!text || !Array.isArray(rows)) return [];
+    const normalized = normalizedText(text);
+    const matches = rows.filter((row) =>
+      dateVariants(row.date).some((variant) => normalized.includes(normalizedText(variant))),
+    );
+    if (matches.length <= 1) return matches;
+    const sorted = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const first = sorted[0]?.date;
+    const last = sorted.at(-1)?.date;
+    if (!first || !last) return sorted;
+    return rows
+      .filter((row) => row.date >= first && row.date <= last)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  };
+
+  const normalizedText = (value) =>
+    String(value || "")
+      .toLowerCase()
+      .replaceAll(",", "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const dateVariants = (dateKey) => {
+    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return [dateKey].filter(Boolean);
+    const [, year, paddedMonth, paddedDay] = match;
+    const month = String(Number(paddedMonth));
+    const day = String(Number(paddedDay));
+    const date = new Date(`${dateKey}T12:00:00`);
+    const locales = [
+      getPageLocale(),
+      "en-US",
+      "zh-CN",
+      "zh-TW",
+      "zh-HK",
+      "ja-JP",
+      "fr-FR",
+      "ru-RU",
+      "es-ES",
+      "de-DE",
+    ];
+    const intlVariants = locales.flatMap((locale) =>
+      [
+        { year: "numeric", month: "short", day: "numeric" },
+        { year: "numeric", month: "long", day: "numeric" },
+        { month: "short", day: "numeric" },
+        { month: "long", day: "numeric" },
+      ].map((options) => {
+        try {
+          return new Intl.DateTimeFormat(locale, options).format(date);
+        } catch {
+          return "";
+        }
+      }),
+    );
+    return [
+      dateKey,
+      `${year}-${month}-${day}`,
+      `${year}/${month}/${day}`,
+      `${month}/${day}/${year}`,
+      `${month}/${day}`,
+      `${year}年${month}月${day}日`,
+      `${month}月${day}日`,
+      ...intlVariants,
+    ].filter(Boolean);
+  };
+
+  const renderChartTooltipDetail = (rows) => {
+    const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const stats = domain.getStats(sorted);
+    const dateLabel =
+      sorted.length === 1
+        ? sorted[0].date
+        : `${sorted[0]?.date || ""} - ${sorted.at(-1)?.date || ""}`;
+    return `
+      <div class="cqc-chart-tooltip-title">Codex Meter · ${escapeHtml(dateLabel)}</div>
+      <div class="cqc-chart-tooltip-grid">
+        <span>${escapeHtml(t("table.credits"))}</span><strong>${fmtCredits(stats.credits)}</strong>
+        <span>${escapeHtml(t("table.tokens"))}</span><strong>${fmtNum(stats.tokens)}</strong>
+        <span>${escapeHtml(t("table.inputTokens"))}</span><strong>${fmtNum(stats.inputTokens)}</strong>
+        <span>${escapeHtml(t("table.cache"))}</span><strong>${(stats.cacheRatio * 100).toFixed(0)}%</strong>
+        <span>${escapeHtml(t("table.usd"))}</span><strong>${escapeHtml(fmtUsd(stats.credits))}</strong>
+        <span>${escapeHtml(t("table.turns"))}</span><strong>${escapeHtml(stats.turns)}</strong>
+      </div>
+    `;
   };
 
   const installRouteObserver = () => {
