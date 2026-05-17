@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.4.0";
+  const CONTENT_SCRIPT_VERSION = "0.4.1";
   const ENABLE_CHART_TOOLTIP_ENHANCER = false;
   const CHART_IDS = {
     switcher: "codex-meter-chart-switcher",
@@ -744,7 +744,12 @@
 
   const findKnownHeading = (key) => {
     const labels = knownText(key);
-    return mainHeadings().find((heading) => labels.includes(elementText(heading))) || null;
+    return (
+      mainHeadings().find((heading) => {
+        const text = elementText(heading);
+        return labels.some((label) => text === label || text.startsWith(label));
+      }) || null
+    );
   };
 
   const sectionForHeading = (heading) => {
@@ -797,6 +802,16 @@
         return ar.top - br.top || ar.height - br.height;
       })[0] || null;
 
+  const findProductLegendElement = (section) =>
+    [...section.querySelectorAll("div,ul,ol,nav")]
+      .filter(isRenderableElement)
+      .filter((element) => element !== section && hasProductUsageLegend(element))
+      .sort((a, b) => {
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        return ar.width * ar.height - br.width * br.height;
+      })[0] || null;
+
   const findProductChartHeading = (section) => {
     if (!section) return null;
     const headings = [...section.querySelectorAll("h2,h3,[role='heading']")]
@@ -805,10 +820,45 @@
     const knownPersonalLabels = knownText("personalUsage");
     return (
       headings.find((heading) => knownPersonalLabels.includes(elementText(heading))) ||
-      headings.find((heading) => heading.matches("h3,[role='heading']")) ||
+      headings.findLast?.((heading) => heading.matches("h3,[role='heading']")) ||
+      headings.filter((heading) => heading.matches("h3,[role='heading']")).at(-1) ||
       headings.at(-1) ||
       null
     );
+  };
+
+  const findProductChartFrame = (section, heading) => {
+    if (!section) return null;
+    const sectionRect = section.getBoundingClientRect();
+    const headingBottom = heading?.getBoundingClientRect().bottom ?? sectionRect.top;
+    const legend = findProductLegendElement(section);
+    const legendTop = legend?.getBoundingClientRect().top ?? sectionRect.bottom;
+    const candidates = [...section.querySelectorAll("div,section,article,svg,canvas")]
+      .filter(isRenderableElement)
+      .filter((element) => !element.closest(`#${IDS.overlay}, #${CHART_IDS.view}, #${CHART_IDS.switcher}`))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        return (
+          rect.top >= headingBottom + 12 &&
+          rect.top < legendTop &&
+          rect.bottom <= legendTop + 28 &&
+          rect.width >= Math.min(520, sectionRect.width * 0.55) &&
+          rect.height >= 220 &&
+          area < sectionRect.width * sectionRect.height * 0.82
+        );
+      })
+      .sort((a, b) => {
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        const aScore = Math.abs(ar.top - (headingBottom + 32)) + Math.abs(ar.bottom - legendTop) * 0.35;
+        const bScore = Math.abs(br.top - (headingBottom + 32)) + Math.abs(br.bottom - legendTop) * 0.35;
+        return aScore - bScore;
+      });
+    return {
+      frame: candidates[0] || null,
+      legend,
+    };
   };
 
   const findUsageDetailsMount = () => {
@@ -817,7 +867,7 @@
 
     const productLegendSection = findProductUsageSection();
     if (productLegendSection) {
-      return mountForHeading(headingNearSection(productLegendSection));
+      return mountForHeading(sectionHeading(productLegendSection) || headingNearSection(productLegendSection));
     }
 
     return null;
@@ -897,6 +947,11 @@
     }
 
     if (getComputedStyle(section).position === "static") section.style.position = "relative";
+    const chartMount = findProductChartFrame(section, heading);
+    if (!chartMount?.frame) {
+      removeUsageChartSwitch();
+      return false;
+    }
 
     let switcher = document.getElementById(CHART_IDS.switcher);
     if (!switcher) {
@@ -933,7 +988,7 @@
     }
     if (view.parentElement !== section) section.appendChild(view);
 
-    positionUsageChartLayer(section, heading, switcher, view);
+    positionUsageChartLayer(section, heading, switcher, view, chartMount);
     setDatasetIfChanged(section, "cqmMeterChartMode", usageChartMode);
     updateUsageChartSwitcher(switcher);
     renderMeterChartView();
@@ -972,12 +1027,22 @@
     });
   };
 
-  const positionUsageChartLayer = (section, heading, switcher, view) => {
+  const positionUsageChartLayer = (section, heading, switcher, view, chartMount) => {
     const sectionRect = section.getBoundingClientRect();
     const headingRect = heading.getBoundingClientRect();
-    const top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 4));
-    const chartTop = Math.max(0, Math.round(headingRect.bottom - sectionRect.top + 28));
-    const height = Math.max(420, Math.min(680, Math.round(sectionRect.bottom - headingRect.bottom - 20)));
+    const frameRect = chartMount.frame.getBoundingClientRect();
+    const legendRect = chartMount.legend?.getBoundingClientRect();
+    const buttonRect = document.getElementById(IDS.button)?.getBoundingClientRect();
+    const chartTop = Math.max(0, Math.round(frameRect.top - sectionRect.top));
+    const chartBottom = Math.round((legendRect?.bottom || frameRect.bottom) - sectionRect.top + 8);
+    const height = Math.max(320, Math.min(620, chartBottom - chartTop));
+    let top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 4));
+    if (buttonRect) {
+      top = Math.max(top, Math.round(buttonRect.bottom - sectionRect.top + 12));
+    }
+    if (top + 46 > chartTop - 8) {
+      top = Math.max(0, chartTop - 58);
+    }
     switcher.style.setProperty("--cqm-chart-switch-top", `${top}px`);
     view.style.setProperty("--cqm-meter-chart-top", `${chartTop}px`);
     view.style.setProperty("--cqm-meter-chart-height", `${height}px`);

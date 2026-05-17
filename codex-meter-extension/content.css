@@ -29,7 +29,7 @@
   position: absolute;
   top: var(--cqm-detail-top, 0);
   right: 24px;
-  z-index: 2;
+  z-index: 6;
   display: none;
   align-items: center;
   gap: 10px;
@@ -84,8 +84,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0;
-  min-height: 44px;
-  padding: 3px;
+  min-height: 40px;
+  padding: 2px;
   border: 1px solid var(--cqc-border-strong);
   border-radius: var(--cqc-radius-control);
   background: color-mix(in srgb, var(--cqc-text) 9%, var(--cqc-bg));
@@ -95,9 +95,9 @@
 }
 
 #codex-meter-chart-switcher button {
-  min-width: 84px;
-  height: 36px;
-  padding: 0 18px;
+  min-width: 80px;
+  height: 34px;
+  padding: 0 16px;
   border: 0;
   border-radius: var(--cqc-radius-control);
   background: transparent;
