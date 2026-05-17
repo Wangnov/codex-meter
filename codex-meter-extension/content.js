@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.8";
+  const CONTENT_SCRIPT_VERSION = "0.2.9";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -20,6 +20,7 @@
   let passiveReportPromise = null;
   let cacheHydrationPromise = null;
   let chartTooltipFrame = 0;
+  let chartPointer = null;
   let lastPassiveRefreshAt = 0;
   const PASSIVE_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -1250,18 +1251,15 @@
   const installChartTooltipEnhancer = () => {
     if (installChartTooltipEnhancer.didInstall) return;
     installChartTooltipEnhancer.didInstall = true;
-    document.addEventListener("pointermove", scheduleChartTooltipEnhance, { passive: true });
-    document.addEventListener("pointerenter", scheduleChartTooltipEnhance, {
-      capture: true,
-      passive: true,
-    });
-    window.__codexMeterTooltipObserver?.disconnect?.();
-    window.__codexMeterTooltipObserver = new MutationObserver(scheduleChartTooltipEnhance);
-    window.__codexMeterTooltipObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
+    document.addEventListener(
+      "pointermove",
+      (event) => {
+        chartPointer = { x: event.clientX, y: event.clientY };
+        scheduleChartTooltipEnhance();
+      },
+      { passive: true },
+    );
+    window.addEventListener("scroll", clearChartTooltipDetails, { passive: true });
   };
 
   const scheduleChartTooltipEnhance = () => {
@@ -1275,9 +1273,13 @@
 
   const enhanceChartTooltip = () => {
     const tooltip = findOfficialChartTooltip();
-    if (!tooltip) return;
+    if (!tooltip) {
+      clearChartTooltipDetails();
+      return;
+    }
     const host = findOfficialTooltipCard(tooltip) || tooltip;
     host.classList.add("cqc-chart-tooltip-host");
+    clearChartTooltipDetails(host);
     if (!latestReport) {
       renderPendingTooltipDetail(tooltip, host);
       ensurePassiveReport({ allowRefresh: true }).then((report) => {
@@ -1291,9 +1293,6 @@
     if (!rows.length) return;
 
     const key = rows.map((row) => row.date).join(",");
-    tooltip.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
-      if (detail.parentElement !== host) detail.remove();
-    });
 
     const existing = host.querySelector(":scope > .cqc-chart-tooltip-detail");
     if (existing?.dataset.key === key) return;
@@ -1307,9 +1306,7 @@
   };
 
   const renderPendingTooltipDetail = (tooltip, host) => {
-    tooltip.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
-      if (detail.parentElement !== host) detail.remove();
-    });
+    clearChartTooltipDetails(host);
     let detail = host.querySelector(":scope > .cqc-chart-tooltip-detail");
     if (!detail) {
       detail = document.createElement("div");
@@ -1320,6 +1317,17 @@
     detail.dataset.key = "pending";
     detail.innerHTML = `<div class="cqc-chart-tooltip-title">${escapeHtml(t("tooltipPending"))}</div>`;
     applyOfficialTooltipTokens(detail, host);
+  };
+
+  const clearChartTooltipDetails = (exceptHost = null) => {
+    document.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
+      if (!exceptHost || detail.parentElement !== exceptHost) detail.remove();
+    });
+    document.querySelectorAll(".cqc-chart-tooltip-host").forEach((host) => {
+      if (host !== exceptHost && !host.querySelector(".cqc-chart-tooltip-detail")) {
+        host.classList.remove("cqc-chart-tooltip-host");
+      }
+    });
   };
 
   const findOfficialTooltipCard = (tooltip) => {
@@ -1367,11 +1375,26 @@
       "[class*='tooltip']",
       "[class*='Tooltip']",
     ].join(",");
-    const directCandidates = [...document.querySelectorAll(selectors)];
-    const fallbackCandidates = [...document.querySelectorAll("main div")].slice(-320);
-    return [...directCandidates, ...fallbackCandidates]
+    const pointCandidates = chartPointer
+      ? document
+          .elementsFromPoint(chartPointer.x, chartPointer.y)
+          .flatMap((element) => [
+            element,
+            ...Array.from(element.querySelectorAll?.("div,section,article,ul,li") || []),
+          ])
+      : [];
+    const directCandidates = [...document.querySelectorAll(selectors)].flatMap((element) => [
+      element,
+      ...element.querySelectorAll("div,section,article,ul,li"),
+    ]);
+    const candidates = [...new Set([...pointCandidates, ...directCandidates])];
+    return candidates
       .filter(isVisibleElement)
       .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width >= 160 && rect.width <= 640 && rect.height >= 56 && rect.height <= 560;
+      })
       .filter(isChartTooltipCandidate)
       .filter((element) => !hasChartTooltipCandidateChild(element))
       .sort((a, b) => {
@@ -1626,10 +1649,15 @@
     window.__codexMeterMutationObserver = new MutationObserver((mutations) => {
       const onlyOwnMutations = mutations.every((mutation) => {
         const target = mutation.target instanceof Element ? mutation.target : null;
-        const ownsTarget = target?.closest?.(`#${IDS.overlay}, #${IDS.button}`);
+        const ownsTarget = target?.closest?.(`#${IDS.overlay}, #${IDS.button}, .cqc-chart-tooltip-detail`);
         const ownsNodes = [...mutation.addedNodes, ...mutation.removedNodes].every((node) => {
           if (!(node instanceof Element)) return true;
-          return node.id === IDS.overlay || node.id === IDS.button || Boolean(node.closest?.(`#${IDS.overlay}, #${IDS.button}`));
+          return (
+            node.id === IDS.overlay ||
+            node.id === IDS.button ||
+            node.classList?.contains("cqc-chart-tooltip-detail") ||
+            Boolean(node.closest?.(`#${IDS.overlay}, #${IDS.button}, .cqc-chart-tooltip-detail`))
+          );
         });
         return ownsTarget || ownsNodes;
       });
