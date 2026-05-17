@@ -57,10 +57,10 @@ git clone https://github.com/Wangnov/codex-meter.git
 1. 打开 `chrome://extensions`
 2. 开启 `Developer mode`
 3. 点击 `Load unpacked`
-4. 选择这个目录：
+4. 选择 clone 下来的扩展目录：
 
 ```text
-/Users/wangnov/codex-meter/codex-quota-compass-extension
+codex-meter/codex-meter-extension
 ```
 
 ## 使用
@@ -78,18 +78,18 @@ git clone https://github.com/Wangnov/codex-meter.git
 
 ## 开发
 
-这个扩展是 buildless 的 MV3 项目，核心目录在 `codex-quota-compass-extension/`。
+这个扩展是 buildless 的 MV3 项目，核心目录在 `codex-meter-extension/`。
 
 ```bash
 # JS 语法检查
-find codex-quota-compass-extension -name '*.js' -maxdepth 3 -print0 | xargs -0 -n1 node --check
+find codex-meter-extension -name '*.js' -maxdepth 3 -print0 | xargs -0 -n1 node --check
 
 # manifest 检查
-node -e "JSON.parse(require('fs').readFileSync('codex-quota-compass-extension/manifest.json','utf8'))"
+node -e "JSON.parse(require('fs').readFileSync('codex-meter-extension/manifest.json','utf8'))"
 
 # 本地打包
 rm -f codex-meter-extension.zip
-(cd codex-quota-compass-extension && zip -r ../codex-meter-extension.zip .)
+(cd codex-meter-extension && zip -r ../codex-meter-extension.zip .)
 unzip -t codex-meter-extension.zip
 ```
 
@@ -132,10 +132,10 @@ Then in Chrome:
 1. Open `chrome://extensions`
 2. Enable `Developer mode`
 3. Click `Load unpacked`
-4. Select this directory:
+4. Select the cloned extension directory:
 
 ```text
-/Users/wangnov/codex-meter/codex-quota-compass-extension
+codex-meter/codex-meter-extension
 ```
 
 ## Use
@@ -153,17 +153,17 @@ Then in Chrome:
 
 ## Development
 
-This is a buildless MV3 extension. The extension root is `codex-quota-compass-extension/`.
+This is a buildless MV3 extension. The extension root is `codex-meter-extension/`.
 
 ```bash
 # JS syntax checks
-find codex-quota-compass-extension -name '*.js' -maxdepth 3 -print0 | xargs -0 -n1 node --check
+find codex-meter-extension -name '*.js' -maxdepth 3 -print0 | xargs -0 -n1 node --check
 
 # manifest check
-node -e "JSON.parse(require('fs').readFileSync('codex-quota-compass-extension/manifest.json','utf8'))"
+node -e "JSON.parse(require('fs').readFileSync('codex-meter-extension/manifest.json','utf8'))"
 
 # local package
 rm -f codex-meter-extension.zip
-(cd codex-quota-compass-extension && zip -r ../codex-meter-extension.zip .)
+(cd codex-meter-extension && zip -r ../codex-meter-extension.zip .)
 unzip -t codex-meter-extension.zip
 ```

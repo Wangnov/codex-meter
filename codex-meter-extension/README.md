@@ -22,10 +22,10 @@ The extension does not store the ChatGPT Web bearer token. It extracts the token
 1. Open `chrome://extensions`.
 2. Enable `Developer mode`.
 3. Click `Load unpacked`.
-4. Select this folder:
+4. Select the cloned extension folder:
 
 ```text
-/Users/wangnov/codex-meter/codex-quota-compass-extension
+codex-meter/codex-meter-extension
 ```
 
 ## Use
