@@ -348,27 +348,28 @@
 
 .cqc-chart-tooltip-detail {
   min-width: 0;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
   color: inherit;
-  font: inherit;
+  font-family: inherit;
+  font-size: var(--cqc-tooltip-font-size, 13px);
+  line-height: var(--cqc-tooltip-line-height, 18px);
+  letter-spacing: inherit;
 }
 
 .cqc-chart-tooltip-title {
-  margin: 0 0 8px;
-  color: inherit;
-  font-size: 0.92em;
-  font-weight: 600;
-  line-height: 1.35;
+  margin: 0 0 6px;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  font: inherit;
+  font-weight: 500;
 }
 
 .cqc-chart-tooltip-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px 18px;
-  font-size: 0.9em;
-  line-height: 1.35;
+  gap: 4px 16px;
+  font: inherit;
 }
 
 .cqc-chart-tooltip-grid span {

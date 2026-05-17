@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.5";
+  const CONTENT_SCRIPT_VERSION = "0.2.6";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -18,7 +18,10 @@
   let latestReport = null;
   let isRunning = false;
   let passiveReportPromise = null;
+  let cacheHydrationPromise = null;
   let chartTooltipFrame = 0;
+  let lastPassiveRefreshAt = 0;
+  const PASSIVE_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
   const MESSAGES = {
     "zh-CN": {
@@ -908,10 +911,12 @@
       ensureUi();
       ensureDetailButton();
       installChartTooltipEnhancer();
+      warmChartReport();
     }
     if (!visible) {
       closePanel();
       removeDetailButton();
+      warmChartReport.didSchedule = false;
     }
   };
 
@@ -1157,22 +1162,73 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const ensurePassiveReport = () => {
+  const ensurePassiveReport = ({ allowRefresh = true } = {}) => {
+    if (latestReport) {
+      if (allowRefresh) refreshPassiveReport();
+      return Promise.resolve(latestReport);
+    }
+    return hydrateCachedReport().then((cached) => {
+      if (cached) {
+        if (allowRefresh) refreshPassiveReport();
+        return cached;
+      }
+      if (allowRefresh) return refreshPassiveReport({ force: true });
+      return null;
+    });
+  };
+
+  const hydrateCachedReport = () => {
     if (latestReport) return Promise.resolve(latestReport);
-    if (isRunning || !isAnalyticsRoute()) return Promise.resolve(null);
+    if (!cacheHydrationPromise) {
+      cacheHydrationPromise = reportRepository
+        .load()
+        .then(({ latest }) => {
+          if (latest && !latestReport) latestReport = latest;
+          return latestReport;
+        })
+        .catch(() => null)
+        .finally(() => {
+          cacheHydrationPromise = null;
+        });
+    }
+    return cacheHydrationPromise;
+  };
+
+  const refreshPassiveReport = ({ force = false } = {}) => {
+    if (isRunning || !isAnalyticsRoute()) return Promise.resolve(latestReport);
+    const now = Date.now();
+    if (!force && now - lastPassiveRefreshAt < PASSIVE_REFRESH_MIN_INTERVAL_MS) {
+      return Promise.resolve(latestReport);
+    }
     if (!passiveReportPromise) {
+      lastPassiveRefreshAt = now;
       passiveReportPromise = reportService
         .refreshReport()
         .then((report) => {
           latestReport = report;
+          scheduleChartTooltipEnhance();
           return report;
         })
-        .catch(() => null)
+        .catch(() => latestReport)
         .finally(() => {
           passiveReportPromise = null;
         });
     }
     return passiveReportPromise;
+  };
+
+  const warmChartReport = () => {
+    if (warmChartReport.didSchedule) return;
+    warmChartReport.didSchedule = true;
+    hydrateCachedReport().then((cached) => {
+      if (cached) scheduleChartTooltipEnhance();
+      const run = () => refreshPassiveReport();
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(run, { timeout: 1000 });
+      } else {
+        window.setTimeout(run, 250);
+      }
+    });
   };
 
   const installChartTooltipEnhancer = () => {
@@ -1205,13 +1261,13 @@
     const tooltip = findOfficialChartTooltip();
     if (!tooltip) return;
     if (!latestReport) {
-      ensurePassiveReport().then((report) => {
+      ensurePassiveReport({ allowRefresh: false }).then((report) => {
         if (report) scheduleChartTooltipEnhance();
       });
       return;
     }
 
-    const tooltipText = elementText(tooltip);
+    const tooltipText = officialTooltipText(tooltip);
     const rows = rowsForTooltipText(tooltipText, latestReport.dailyList);
     if (!rows.length) return;
 
@@ -1228,6 +1284,7 @@
     detail.className = "cqc-chart-tooltip-detail";
     detail.dataset.key = key;
     detail.innerHTML = renderChartTooltipDetail(rows);
+    applyOfficialTooltipTokens(detail, host);
     if (!existing) host.appendChild(detail);
   };
 
@@ -1236,7 +1293,7 @@
       .filter(isVisibleElement)
       .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
       .filter((element) => {
-        const text = elementText(element);
+        const text = officialTooltipText(element);
         return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
       });
     return candidates.sort((a, b) => tooltipCardScore(b, tooltip) - tooltipCardScore(a, tooltip))[0] || null;
@@ -1291,7 +1348,7 @@
       .filter(isVisibleElement)
       .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
       .filter((element) => {
-        const text = elementText(element);
+        const text = officialTooltipText(element);
         return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
       })
       .sort((a, b) => {
@@ -1336,6 +1393,27 @@
       .replaceAll(",", "")
       .replace(/\s+/g, " ")
       .trim();
+
+  const officialTooltipText = (element) => {
+    const clone = element.cloneNode(true);
+    clone.querySelectorAll?.(".cqc-chart-tooltip-detail").forEach((detail) => detail.remove());
+    return elementText(clone);
+  };
+
+  const applyOfficialTooltipTokens = (detail, host) => {
+    const row = [...host.querySelectorAll("*")]
+      .filter((element) => !element.closest(".cqc-chart-tooltip-detail"))
+      .find((element) => /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(elementText(element)));
+    const style = getComputedStyle(row || host);
+    const fontSize = parseFloat(style.fontSize);
+    const lineHeight = parseFloat(style.lineHeight);
+    const nextFontSize = Number.isFinite(fontSize) ? Math.max(12, Math.min(14, fontSize)) : 13;
+    const nextLineHeight = Number.isFinite(lineHeight)
+      ? Math.max(nextFontSize + 4, Math.min(20, lineHeight))
+      : nextFontSize + 4;
+    detail.style.setProperty("--cqc-tooltip-font-size", `${nextFontSize}px`);
+    detail.style.setProperty("--cqc-tooltip-line-height", `${nextLineHeight}px`);
+  };
 
   const textContainsDateVariant = (text, variant) => {
     const normalized = normalizedText(text);
