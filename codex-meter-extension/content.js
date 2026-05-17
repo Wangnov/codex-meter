@@ -1,8 +1,17 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.3.0";
+  const CONTENT_SCRIPT_VERSION = "0.4.0";
   const ENABLE_CHART_TOOLTIP_ENHANCER = false;
+  const CHART_IDS = {
+    switcher: "codex-meter-chart-switcher",
+    view: "codex-meter-chart-view",
+  };
+  const CHART_MODE_STORAGE_KEY = "codexMeterUsageChartMode";
+  const CHART_MODES = {
+    source: "source",
+    meter: "meter",
+  };
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -22,8 +31,18 @@
   let cacheHydrationPromise = null;
   let chartTooltipFrame = 0;
   let chartPointer = null;
+  let usageChartMode = CHART_MODES.source;
   let lastPassiveRefreshAt = 0;
   const PASSIVE_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+  try {
+    const storedMode = window.localStorage?.getItem(CHART_MODE_STORAGE_KEY);
+    if (storedMode === CHART_MODES.meter || storedMode === CHART_MODES.source) {
+      usageChartMode = storedMode;
+    }
+  } catch {
+    usageChartMode = CHART_MODES.source;
+  }
 
   const MESSAGES = {
     "zh-CN": {
@@ -40,6 +59,12 @@
       skeletonLoading: "正在读取 Codex 用量和每日明细...",
       updated: "数据已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
+      chart: {
+        source: "按来源",
+        meter: "Meter",
+        loading: "正在读取 Meter 图表数据...",
+        empty: "暂无可绘制的用量数据。",
+      },
       noToken: "没有在页面 bootstrap 数据里找到 ChatGPT Web token。请确认已登录并刷新页面。",
       openAnalyticsFirst: "请先打开 ChatGPT Codex analytics 页面。",
       limits: {
@@ -88,6 +113,12 @@
       skeletonLoading: "正在讀取 Codex 用量與每日明細...",
       updated: "資料已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
+      chart: {
+        source: "按來源",
+        meter: "Meter",
+        loading: "正在讀取 Meter 圖表資料...",
+        empty: "暫無可繪製的用量資料。",
+      },
       noToken: "在頁面 bootstrap 資料中找不到 ChatGPT Web token。請確認已登入並重新整理頁面。",
       openAnalyticsFirst: "請先開啟 ChatGPT Codex analytics 頁面。",
       limits: {
@@ -136,6 +167,12 @@
       skeletonLoading: "正在讀取 Codex 用量及每日明細...",
       updated: "資料已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
+      chart: {
+        source: "按來源",
+        meter: "Meter",
+        loading: "正在讀取 Meter 圖表資料...",
+        empty: "暫時未有可繪製的用量資料。",
+      },
       noToken: "在頁面 bootstrap 資料入面找不到 ChatGPT Web token。請確認已登入並重新整理頁面。",
       openAnalyticsFirst: "請先開啟 ChatGPT Codex analytics 頁面。",
       limits: {
@@ -184,6 +221,12 @@
       skeletonLoading: "Reading Codex usage and daily details...",
       updated: "Data updated: {time}",
       tooltipPending: "Codex Meter · updating",
+      chart: {
+        source: "By source",
+        meter: "Meter",
+        loading: "Reading Meter chart data...",
+        empty: "No usage data to chart yet.",
+      },
       noToken: "Could not find the ChatGPT web token in the page bootstrap data. Make sure you are signed in and refresh the page.",
       openAnalyticsFirst: "Open the ChatGPT Codex analytics page first.",
       limits: {
@@ -232,6 +275,12 @@
       skeletonLoading: "Codex の使用量と日別の詳細を読み込んでいます...",
       updated: "データ更新済み: {time}",
       tooltipPending: "Codex Meter · 更新中",
+      chart: {
+        source: "ソース別",
+        meter: "Meter",
+        loading: "Meter グラフデータを読み込んでいます...",
+        empty: "グラフ化できる使用量データはまだありません。",
+      },
       noToken: "ページの bootstrap データ内に ChatGPT Web token が見つかりません。ログイン済みであることを確認して、ページを更新してください。",
       openAnalyticsFirst: "先に ChatGPT Codex analytics ページを開いてください。",
       limits: {
@@ -280,6 +329,12 @@
       skeletonLoading: "Lecture de l’utilisation Codex et des détails quotidiens...",
       updated: "Données mises à jour : {time}",
       tooltipPending: "Codex Meter · mise à jour",
+      chart: {
+        source: "Par source",
+        meter: "Meter",
+        loading: "Lecture des données du graphique Meter...",
+        empty: "Aucune donnée d’utilisation à afficher pour l’instant.",
+      },
       noToken: "Impossible de trouver le token Web ChatGPT dans les données bootstrap de la page. Vérifiez que vous êtes connecté, puis actualisez la page.",
       openAnalyticsFirst: "Ouvrez d’abord la page ChatGPT Codex analytics.",
       limits: {
@@ -336,6 +391,12 @@
       skeletonLoading: "Чтение данных использования Codex и ежедневной детализации...",
       updated: "Данные обновлены: {time}",
       tooltipPending: "Codex Meter · обновление",
+      chart: {
+        source: "По источнику",
+        meter: "Meter",
+        loading: "Чтение данных графика Meter...",
+        empty: "Пока нет данных использования для графика.",
+      },
       noToken: "Не удалось найти веб-токен ChatGPT в bootstrap-данных страницы. Убедитесь, что вы вошли в аккаунт, и обновите страницу.",
       openAnalyticsFirst: "Сначала откройте страницу аналитики ChatGPT Codex.",
       limits: {
@@ -384,6 +445,12 @@
       skeletonLoading: "Leyendo el uso de Codex y los detalles diarios...",
       updated: "Datos actualizados: {time}",
       tooltipPending: "Codex Meter · actualizando",
+      chart: {
+        source: "Por origen",
+        meter: "Meter",
+        loading: "Leyendo los datos del gráfico Meter...",
+        empty: "Aún no hay datos de uso para graficar.",
+      },
       noToken: "No se encontró el token web de ChatGPT en los datos bootstrap de la página. Asegúrate de haber iniciado sesión y actualiza la página.",
       openAnalyticsFirst: "Abre primero la página de ChatGPT Codex analytics.",
       limits: {
@@ -432,6 +499,12 @@
       skeletonLoading: "Codex-Nutzung und tägliche Details werden gelesen...",
       updated: "Daten aktualisiert: {time}",
       tooltipPending: "Codex Meter · wird aktualisiert",
+      chart: {
+        source: "Nach Quelle",
+        meter: "Meter",
+        loading: "Meter-Diagrammdaten werden gelesen...",
+        empty: "Noch keine Nutzungsdaten für das Diagramm.",
+      },
       noToken: "Das ChatGPT-Web-Token wurde in den Bootstrap-Daten der Seite nicht gefunden. Stelle sicher, dass du angemeldet bist, und lade die Seite neu.",
       openAnalyticsFirst: "Öffne zuerst die ChatGPT Codex analytics-Seite.",
       limits: {
@@ -710,20 +783,39 @@
     );
   };
 
+  const hasProductUsageLegend = (element) => {
+    const text = elementText(element);
+    return /\bDesktop App\b/.test(text) && /\bCLI\b/.test(text) && /\bCloud\b/.test(text);
+  };
+
+  const findProductUsageSection = () =>
+    visibleMainSections()
+      .filter(hasProductUsageLegend)
+      .sort((a, b) => {
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        return ar.top - br.top || ar.height - br.height;
+      })[0] || null;
+
+  const findProductChartHeading = (section) => {
+    if (!section) return null;
+    const headings = [...section.querySelectorAll("h2,h3,[role='heading']")]
+      .filter(isRenderableElement)
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    const knownPersonalLabels = knownText("personalUsage");
+    return (
+      headings.find((heading) => knownPersonalLabels.includes(elementText(heading))) ||
+      headings.find((heading) => heading.matches("h3,[role='heading']")) ||
+      headings.at(-1) ||
+      null
+    );
+  };
+
   const findUsageDetailsMount = () => {
     const knownHeading = findKnownHeading("usageDetails");
     if (knownHeading) return mountForHeading(knownHeading);
 
-    const sections = [...document.querySelectorAll("main section, main article, section")]
-      .filter(isRenderableElement)
-      .filter((section) => {
-        const rect = section.getBoundingClientRect();
-        return rect.x > 240 && rect.width > 500 && section.querySelector("h2,h3");
-      });
-    const productLegendSection = sections.find((section) => {
-      const text = elementText(section);
-      return /\bDesktop App\b/.test(text) && /\bCLI\b/.test(text) && /\bCloud\b/.test(text);
-    });
+    const productLegendSection = findProductUsageSection();
     if (productLegendSection) {
       return mountForHeading(headingNearSection(productLegendSection));
     }
@@ -789,6 +881,252 @@
 
   const removeDetailButton = () => {
     document.getElementById(IDS.button)?.remove();
+  };
+
+  const ensureUsageChartSwitch = () => {
+    if (!isAnalyticsRoute()) {
+      removeUsageChartSwitch();
+      return false;
+    }
+
+    const section = findProductUsageSection();
+    const heading = findProductChartHeading(section);
+    if (!section || !heading) {
+      removeUsageChartSwitch();
+      return false;
+    }
+
+    if (getComputedStyle(section).position === "static") section.style.position = "relative";
+
+    let switcher = document.getElementById(CHART_IDS.switcher);
+    if (!switcher) {
+      switcher = document.createElement("div");
+      switcher.id = CHART_IDS.switcher;
+      switcher.className = "cqm-chart-switcher";
+      switcher.setAttribute("role", "tablist");
+      switcher.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-cqm-chart-mode]");
+        if (!button || !switcher.contains(button)) return;
+        event.preventDefault();
+        setUsageChartMode(button.dataset.cqmChartMode);
+      });
+    }
+
+    const switcherHtml = `
+      <button type="button" role="tab" data-cqm-chart-mode="${CHART_MODES.source}">
+        ${escapeHtml(t("chart.source"))}
+      </button>
+      <button type="button" role="tab" data-cqm-chart-mode="${CHART_MODES.meter}">
+        ${escapeHtml(t("chart.meter"))}
+      </button>
+    `;
+    setHtmlIfChanged(switcher, switcherHtml);
+    if (switcher.parentElement !== section) section.appendChild(switcher);
+
+    let view = document.getElementById(CHART_IDS.view);
+    if (!view) {
+      view = document.createElement("div");
+      view.id = CHART_IDS.view;
+      view.className = "cqm-meter-chart-view";
+      view.addEventListener("pointermove", handleMeterChartPointerMove);
+      view.addEventListener("pointerleave", hideMeterChartTooltip);
+    }
+    if (view.parentElement !== section) section.appendChild(view);
+
+    positionUsageChartLayer(section, heading, switcher, view);
+    setDatasetIfChanged(section, "cqmMeterChartMode", usageChartMode);
+    updateUsageChartSwitcher(switcher);
+    renderMeterChartView();
+    if (usageChartMode === CHART_MODES.meter && !latestReport) {
+      renderMeterChartLoading();
+      ensurePassiveReport({ allowRefresh: true }).then((report) => {
+        if (report && usageChartMode === CHART_MODES.meter) renderMeterChartView();
+      });
+    }
+    return true;
+  };
+
+  const removeUsageChartSwitch = () => {
+    document.getElementById(CHART_IDS.switcher)?.remove();
+    document.getElementById(CHART_IDS.view)?.remove();
+    document.querySelectorAll("[data-cqm-meter-chart-mode]").forEach((section) => {
+      delete section.dataset.cqmMeterChartMode;
+    });
+  };
+
+  const setUsageChartMode = (mode) => {
+    if (mode !== CHART_MODES.source && mode !== CHART_MODES.meter) return;
+    usageChartMode = mode;
+    try {
+      window.localStorage?.setItem(CHART_MODE_STORAGE_KEY, mode);
+    } catch {}
+    ensureUsageChartSwitch();
+  };
+
+  const updateUsageChartSwitcher = (switcher) => {
+    switcher.querySelectorAll("[data-cqm-chart-mode]").forEach((button) => {
+      const active = button.dataset.cqmChartMode === usageChartMode;
+      setAttributeIfChanged(button, "aria-selected", active ? "true" : "false");
+      setDatasetIfChanged(button, "active", active ? "true" : "false");
+      button.tabIndex = active ? 0 : -1;
+    });
+  };
+
+  const positionUsageChartLayer = (section, heading, switcher, view) => {
+    const sectionRect = section.getBoundingClientRect();
+    const headingRect = heading.getBoundingClientRect();
+    const top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 4));
+    const chartTop = Math.max(0, Math.round(headingRect.bottom - sectionRect.top + 28));
+    const height = Math.max(420, Math.min(680, Math.round(sectionRect.bottom - headingRect.bottom - 20)));
+    switcher.style.setProperty("--cqm-chart-switch-top", `${top}px`);
+    view.style.setProperty("--cqm-meter-chart-top", `${chartTop}px`);
+    view.style.setProperty("--cqm-meter-chart-height", `${height}px`);
+  };
+
+  const renderMeterChartLoading = () => {
+    const view = document.getElementById(CHART_IDS.view);
+    if (!view) return;
+    setHtmlIfChanged(
+      view,
+      `<div class="cqm-meter-chart-state">${icon("sparkles")}<span>${escapeHtml(t("chart.loading"))}</span></div>`,
+    );
+  };
+
+  const renderMeterChartView = () => {
+    const view = document.getElementById(CHART_IDS.view);
+    if (!view) return;
+    if (!latestReport) {
+      renderMeterChartLoading();
+      return;
+    }
+    const rows = meterChartRows(latestReport);
+    if (!rows.length) {
+      view.dataset.chartKey = "empty";
+      setHtmlIfChanged(
+        view,
+        `<div class="cqm-meter-chart-state">${icon("barChart")}<span>${escapeHtml(t("chart.empty"))}</span></div>`,
+      );
+      return;
+    }
+    const key = `${getLocale()}|${rows.map((row) => `${row.date}:${row.credits}:${row.tokens}:${row.turns}`).join("|")}`;
+    if (view.dataset.chartKey === key) return;
+    view.dataset.chartKey = key;
+    setHtmlIfChanged(view, renderMeterChart(rows));
+  };
+
+  const meterChartRows = (report) =>
+    [...(report?.dailyList || [])]
+      .filter((row) => row?.date && row.date <= domain.localDate())
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .slice(-30)
+      .map((row) => {
+        const totals = row.totals || {};
+        const credits = n(totals.credits);
+        const tokens = tokenTotal(totals);
+        return {
+          row,
+          date: row.date,
+          credits,
+          tokens,
+          inputTokens: tokenInput(totals),
+          cacheRatio: cacheRatio(totals),
+          turns: n(totals.turns),
+        };
+      })
+      .filter((row) => row.credits > 0 || row.tokens > 0 || row.turns > 0);
+
+  const renderMeterChart = (rows) => {
+    const width = 1200;
+    const height = 420;
+    const plot = { left: 64, right: 28, top: 28, bottom: 78 };
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const maxCredits = Math.max(...rows.map((row) => row.credits), 0);
+    const maxTokens = Math.max(...rows.map((row) => row.tokens), 0);
+    const useCredits = maxCredits > 0;
+    const maxValue = Math.max(useCredits ? maxCredits : maxTokens, 1);
+    const slot = plotWidth / rows.length;
+    const barWidth = Math.max(5, Math.min(24, slot * 0.56));
+    const bars = rows
+      .map((row, index) => {
+        const value = useCredits ? row.credits : row.tokens;
+        const barHeight = Math.max(value > 0 ? 2 : 0, (value / maxValue) * plotHeight);
+        const x = plot.left + slot * index + (slot - barWidth) / 2;
+        const y = plot.top + plotHeight - barHeight;
+        return `
+          <rect
+            class="cqm-meter-chart-bar"
+            data-index="${index}"
+            x="${x.toFixed(2)}"
+            y="${y.toFixed(2)}"
+            width="${barWidth.toFixed(2)}"
+            height="${barHeight.toFixed(2)}"
+            rx="4"
+          />
+        `;
+      })
+      .join("");
+    const maxLabel = useCredits ? fmtCredits(maxValue, maxValue >= 100 ? 0 : 1) : fmtNum(maxValue);
+    return `
+      <svg class="cqm-meter-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Codex Meter">
+        <line class="cqm-meter-grid-line" x1="${plot.left}" x2="${width - plot.right}" y1="${plot.top}" y2="${plot.top}" />
+        <line class="cqm-meter-axis-line" x1="${plot.left}" x2="${width - plot.right}" y1="${plot.top + plotHeight}" y2="${plot.top + plotHeight}" />
+        <text class="cqm-meter-axis-label" x="${plot.left - 12}" y="${plot.top + 4}" text-anchor="end">${escapeHtml(maxLabel)}</text>
+        <text class="cqm-meter-axis-label" x="${plot.left - 12}" y="${plot.top + plotHeight + 4}" text-anchor="end">0</text>
+        ${bars}
+        <text class="cqm-meter-axis-label" x="${plot.left}" y="${height - 30}">${escapeHtml(formatAxisDate(rows[0].date))}</text>
+        <text class="cqm-meter-axis-label" x="${width - plot.right}" y="${height - 30}" text-anchor="end">${escapeHtml(formatAxisDate(rows.at(-1).date))}</text>
+      </svg>
+      <div class="cqm-meter-chart-legend">
+        <span><i></i>${escapeHtml(t("table.credits"))}</span>
+      </div>
+      <div class="cqm-meter-chart-tooltip" hidden></div>
+    `;
+  };
+
+  const formatAxisDate = (dateKey) => {
+    const date = new Date(`${dateKey}T12:00:00`);
+    try {
+      return new Intl.DateTimeFormat(getPageLocale(), { month: "numeric", day: "numeric" }).format(date);
+    } catch {
+      return dateKey;
+    }
+  };
+
+  const handleMeterChartPointerMove = (event) => {
+    const bar = event.target.closest?.(".cqm-meter-chart-bar");
+    const view = document.getElementById(CHART_IDS.view);
+    if (!bar || !view?.contains(bar)) {
+      hideMeterChartTooltip();
+      return;
+    }
+    const rows = meterChartRows(latestReport);
+    const row = rows[Number(bar.dataset.index)];
+    if (!row) {
+      hideMeterChartTooltip();
+      return;
+    }
+    showMeterChartTooltip(view, row, event.clientX, event.clientY);
+  };
+
+  const showMeterChartTooltip = (view, row, clientX, clientY) => {
+    const tooltip = view.querySelector(".cqm-meter-chart-tooltip");
+    if (!tooltip) return;
+    if (tooltip.dataset.key !== row.date) {
+      tooltip.dataset.key = row.date;
+      setHtmlIfChanged(tooltip, renderChartTooltipDetail([row.row]));
+    }
+    tooltip.hidden = false;
+    const rect = view.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const x = Math.min(Math.max(16, clientX - rect.left + 16), Math.max(16, rect.width - tooltipRect.width - 16));
+    const y = Math.min(Math.max(16, clientY - rect.top - tooltipRect.height - 12), Math.max(16, rect.height - tooltipRect.height - 16));
+    tooltip.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  };
+
+  const hideMeterChartTooltip = () => {
+    const tooltip = document.querySelector(`#${CHART_IDS.view} .cqm-meter-chart-tooltip`);
+    if (tooltip) tooltip.hidden = true;
   };
 
   const ensureChromeRuntimeListener = () => {
@@ -928,6 +1266,7 @@
     if (visible) {
       ensureUi();
       ensureDetailButton();
+      ensureUsageChartSwitch();
       if (ENABLE_CHART_TOOLTIP_ENHANCER) {
         installChartTooltipEnhancer();
         warmChartReport();
@@ -938,6 +1277,7 @@
     if (!visible) {
       closePanel();
       removeDetailButton();
+      removeUsageChartSwitch();
       clearChartTooltipDetails();
       warmChartReport.didSchedule = false;
     }
@@ -958,6 +1298,7 @@
     try {
       latestReport = await reportService.refreshReport();
       renderReport(latestReport);
+      renderMeterChartView();
       if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
       return latestReport;
     } catch (error) {
@@ -1229,6 +1570,7 @@
         .refreshReport()
         .then((report) => {
           latestReport = report;
+          if (usageChartMode === CHART_MODES.meter) renderMeterChartView();
           if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
           return report;
         })
@@ -1648,9 +1990,11 @@
       const route = `${location.pathname}${location.search}${location.hash}`;
       const routeChanged = route !== lastRoute;
       const hasButton = Boolean(document.getElementById(IDS.button));
+      const hasChartSwitch = Boolean(document.getElementById(CHART_IDS.switcher));
       const needsButton = isAnalyticsRoute() && !hasButton;
+      const needsChartSwitch = isAnalyticsRoute() && !hasChartSwitch;
       const staleButton = !isAnalyticsRoute() && hasButton;
-      if (!routeChanged && !needsButton && !staleButton) return;
+      if (!routeChanged && !needsButton && !needsChartSwitch && !staleButton) return;
       lastRoute = route;
       notify();
     };
