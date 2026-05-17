@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.1";
+  const CONTENT_SCRIPT_VERSION = "0.2.2";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -1008,6 +1008,15 @@
     return `
       <div class="cqc-table-wrap">
         <table class="cqc-table">
+          <colgroup>
+            <col>
+            <col>
+            <col>
+            <col>
+            <col>
+            <col>
+            <col>
+          </colgroup>
           <thead>
             <tr>
               <th>${escapeHtml(t("table.date"))}</th>
