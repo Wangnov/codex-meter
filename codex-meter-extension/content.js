@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.2";
+  const CONTENT_SCRIPT_VERSION = "0.2.3";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -50,6 +50,7 @@
         credits: ["本周期已用 Credits", "按每日用量明细加总。"],
         tokens: ["本周期总 Tokens", "按每日用量明细汇总的全部 Tokens。"],
         projected: ["推算周期总 Credits", "用当前已用比例反推整周期额度。"],
+        projectedUnavailable: ["明细不足", "需要官方剩余额度比例和每日 Credits 明细同时可用。当前每日明细还没有可用于反推的 Credits。"],
         cache: ["输入缓存命中率", "缓存输入占全部输入 Tokens 的比例。"],
         usd: ["本周期折算金额", "按 1000 Credits = US$40 估算。"],
       },
@@ -96,6 +97,7 @@
         credits: ["本週期已用 Credits", "按每日用量明細加總。"],
         tokens: ["本週期總 Tokens", "按每日用量明細彙總的全部 Tokens。"],
         projected: ["推算週期總 Credits", "用目前已用比例反推整個週期額度。"],
+        projectedUnavailable: ["明細不足", "需要官方剩餘額度比例和每日 Credits 明細同時可用。目前每日明細尚未有可用於反推的 Credits。"],
         cache: ["輸入快取命中率", "快取輸入佔全部輸入 Tokens 的比例。"],
         usd: ["本週期折算金額", "按 1000 Credits = US$40 估算。"],
       },
@@ -142,6 +144,7 @@
         credits: ["本週期已用 Credits", "按每日用量明細加總。"],
         tokens: ["本週期總 Tokens", "按每日用量明細彙總所有 Tokens。"],
         projected: ["推算週期總 Credits", "用目前已用比例反推整個週期額度。"],
+        projectedUnavailable: ["明細不足", "需要官方剩餘額度比例和每日 Credits 明細同時可用。目前每日明細未有可用於反推的 Credits。"],
         cache: ["輸入快取命中率", "快取輸入佔全部輸入 Tokens 的比例。"],
         usd: ["本週期折算金額", "按 1000 Credits = US$40 估算。"],
       },
@@ -188,6 +191,7 @@
         credits: ["Credits used this cycle", "Totaled from the daily usage details."],
         tokens: ["Total Tokens this cycle", "All Tokens summed from daily usage details."],
         projected: ["Projected cycle Credits", "Estimated from current usage and remaining quota."],
+        projectedUnavailable: ["Pending", "This estimate needs both the official quota percentage and daily Credits details. The daily details do not yet include usable Credits."],
         cache: ["Input cache hit rate", "Cached input as a share of all input Tokens."],
         usd: ["Estimated cycle value", "Estimated at US$40 per 1000 Credits."],
       },
@@ -234,6 +238,7 @@
         credits: ["このサイクルで使用した Credits", "日別の使用量明細から合計しています。"],
         tokens: ["このサイクルの合計 Tokens", "日別の使用量明細からすべての Tokens を合計しています。"],
         projected: ["推定サイクル総 Credits", "現在の使用率と残り割当から推定しています。"],
+        projectedUnavailable: ["保留中", "この推定には公式の割当比率と日別 Credits 明細の両方が必要です。日別明細にはまだ反推に使える Credits がありません。"],
         cache: ["入力キャッシュヒット率", "全入力 Tokens に占めるキャッシュ済み入力の割合です。"],
         usd: ["推定サイクル金額", "1000 Credits = US$40 として推定しています。"],
       },
@@ -280,6 +285,7 @@
         credits: ["Credits utilisés ce cycle", "Total calculé à partir des détails quotidiens."],
         tokens: ["Total des Tokens ce cycle", "Tous les Tokens additionnés depuis les détails quotidiens."],
         projected: ["Credits estimés pour le cycle", "Estimés à partir de l’utilisation actuelle et du quota restant."],
+        projectedUnavailable: ["En attente", "Cette estimation nécessite à la fois le pourcentage de quota officiel et les détails quotidiens en Credits. Les détails quotidiens ne contiennent pas encore de Credits utilisables."],
         cache: ["Taux de cache des entrées", "Part des entrées mises en cache dans tous les Tokens d’entrée."],
         usd: ["Valeur estimée du cycle", "Estimation sur la base de 1000 Credits = 40 US$."],
       },
@@ -334,6 +340,7 @@
         credits: ["Credits использовано в этом цикле", "Сумма по ежедневной детализации."],
         tokens: ["Всего Tokens в этом цикле", "Все Tokens, суммированные по ежедневной детализации."],
         projected: ["Прогноз Credits за цикл", "Оценка по текущему использованию и оставшейся квоте."],
+        projectedUnavailable: ["Ожидание", "Для оценки нужны официальный процент квоты и ежедневная детализация Credits. В ежедневных данных пока нет Credits, пригодных для расчета."],
         cache: ["Доля попаданий кэша ввода", "Кэшированный ввод как доля всех входных Tokens."],
         usd: ["Оценочная стоимость цикла", "Оценка из расчета US$40 за 1000 Credits."],
       },
@@ -380,6 +387,7 @@
         credits: ["Credits usados en este ciclo", "Total calculado a partir de los detalles diarios."],
         tokens: ["Tokens totales en este ciclo", "Todos los Tokens sumados desde los detalles diarios."],
         projected: ["Credits estimados del ciclo", "Estimado a partir del uso actual y la cuota restante."],
+        projectedUnavailable: ["Pendiente", "Esta estimación necesita tanto el porcentaje oficial de cuota como los detalles diarios de Credits. Los detalles diarios aún no incluyen Credits utilizables."],
         cache: ["Tasa de aciertos de caché de entrada", "Entradas en caché como parte de todos los Tokens de entrada."],
         usd: ["Valor estimado del ciclo", "Estimado a US$40 por cada 1000 Credits."],
       },
@@ -426,6 +434,7 @@
         credits: ["In diesem Zyklus genutzte Credits", "Aus den täglichen Nutzungsdetails summiert."],
         tokens: ["Gesamte Tokens in diesem Zyklus", "Alle Tokens aus den täglichen Details summiert."],
         projected: ["Geschätzte Credits für den Zyklus", "Aus aktueller Nutzung und verbleibendem Kontingent geschätzt."],
+        projectedUnavailable: ["Ausstehend", "Diese Schätzung braucht sowohl den offiziellen Kontingent-Prozentsatz als auch tägliche Credits-Details. Die täglichen Details enthalten noch keine nutzbaren Credits."],
         cache: ["Cache-Trefferquote für Eingaben", "Zwischengespeicherte Eingaben als Anteil aller Eingabe-Tokens."],
         usd: ["Geschätzter Zykluswert", "Geschätzt mit US$40 pro 1000 Credits."],
       },
@@ -970,14 +979,20 @@
     const stats = report.currentStats;
     const remaining = report.primaryWindow?.remainingPercent;
     const used = report.primaryWindow?.usedPercent;
-    const projectedCredits =
-      used && used > 0 ? stats.credits / (used / 100) : 0;
+    const canProjectCredits = used != null && used > 0 && stats.credits > 0;
+    const projectedCredits = canProjectCredits ? stats.credits / (used / 100) : null;
+    const projectedValue = canProjectCredits
+      ? fmtCredits(projectedCredits, 1)
+      : t("metrics.projectedUnavailable.0");
+    const projectedHint = canProjectCredits
+      ? t("metrics.projected.1")
+      : t("metrics.projectedUnavailable.1");
     return `
       <div class="cqc-grid">
         ${renderMetricCard("gauge", t("metrics.remaining.0"), remaining == null ? "N/A" : `${remaining.toFixed(1)}%`, "fresh", true, t("metrics.remaining.1"))}
         ${renderMetricCard("coins", t("metrics.credits.0"), fmtCredits(stats.credits, 2), "mint", false, t("metrics.credits.1"))}
         ${renderMetricCard("cpu", t("metrics.tokens.0"), fmtNum(stats.tokens), "blue", false, t("metrics.tokens.1"))}
-        ${renderMetricCard("trendingUp", t("metrics.projected.0"), projectedCredits ? fmtCredits(projectedCredits, 1) : "N/A", "amber", false, t("metrics.projected.1"))}
+        ${renderMetricCard("trendingUp", t("metrics.projected.0"), projectedValue, "amber", false, projectedHint)}
         ${renderMetricCard("layers", t("metrics.cache.0"), `${(stats.cacheRatio * 100).toFixed(1)}%`, "violet", false, t("metrics.cache.1"))}
         ${renderMetricCard("wallet", t("metrics.usd.0"), escapeHtml(fmtUsd(stats.credits)), "ink", false, t("metrics.usd.1"))}
       </div>
