@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.7";
+  const CONTENT_SCRIPT_VERSION = "0.2.8";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -1326,10 +1326,8 @@
     const candidates = [tooltip, ...tooltip.querySelectorAll("div,section,article,ul,li")]
       .filter(isVisibleElement)
       .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
-      .filter((element) => {
-        const text = officialTooltipText(element);
-        return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
-      });
+      .filter(isChartTooltipCandidate)
+      .filter((element) => !hasChartTooltipCandidateChild(element));
     return candidates.sort((a, b) => tooltipCardScore(b, tooltip) - tooltipCardScore(a, tooltip))[0] || null;
   };
 
@@ -1370,27 +1368,26 @@
       "[class*='Tooltip']",
     ].join(",");
     const directCandidates = [...document.querySelectorAll(selectors)];
-    const fallbackCandidates = directCandidates.length
-      ? []
-      : [...document.querySelectorAll("main div")]
-          .filter((element) => {
-            const rect = element.getBoundingClientRect();
-            return rect.width >= 180 && rect.width <= 520 && rect.height >= 80 && rect.height <= 360;
-          })
-          .slice(-80);
+    const fallbackCandidates = [...document.querySelectorAll("main div")].slice(-320);
     return [...directCandidates, ...fallbackCandidates]
       .filter(isVisibleElement)
       .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
-      .filter((element) => {
-        const text = officialTooltipText(element);
-        return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
-      })
+      .filter(isChartTooltipCandidate)
+      .filter((element) => !hasChartTooltipCandidateChild(element))
       .sort((a, b) => {
         const ar = a.getBoundingClientRect();
         const br = b.getBoundingClientRect();
         return ar.width * ar.height - br.width * br.height;
       })[0] || null;
   };
+
+  const isChartTooltipCandidate = (element) => {
+    const text = officialTooltipText(element);
+    return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
+  };
+
+  const hasChartTooltipCandidateChild = (element) =>
+    [...element.children].some((child) => isVisibleElement(child) && isChartTooltipCandidate(child));
 
   const hasTooltipDate = (text) => {
     if (!text) return false;
@@ -1506,9 +1503,12 @@
   };
 
   const officialTooltipText = (element) => {
-    const clone = element.cloneNode(true);
-    clone.querySelectorAll?.(".cqc-chart-tooltip-detail").forEach((detail) => detail.remove());
-    return elementText(clone);
+    const collect = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+      if (!(node instanceof Element) || node.matches(".cqc-chart-tooltip-detail")) return "";
+      return [...node.childNodes].map(collect).join(" ");
+    };
+    return collect(element).replace(/\s+/g, " ").trim();
   };
 
   const applyOfficialTooltipTokens = (detail, host) => {
