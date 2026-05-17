@@ -347,38 +347,42 @@
 }
 
 .cqc-chart-tooltip-detail {
-  min-width: 260px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--cqc-border);
-  color: var(--cqc-text);
-  font: 13px/18px var(--cqc-font);
+  min-width: 0;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  color: inherit;
+  font: inherit;
 }
 
 .cqc-chart-tooltip-title {
-  margin-bottom: 8px;
-  color: var(--cqc-text);
+  margin: 0 0 8px;
+  color: inherit;
+  font-size: 0.92em;
   font-weight: 600;
+  line-height: 1.35;
 }
 
 .cqc-chart-tooltip-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 18px;
+  gap: 5px 18px;
+  font-size: 0.9em;
+  line-height: 1.35;
 }
 
 .cqc-chart-tooltip-grid span {
   min-width: 0;
   overflow: hidden;
-  color: var(--cqc-text-tertiary);
+  color: color-mix(in srgb, currentColor 62%, transparent);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cqc-chart-tooltip-grid strong {
-  color: var(--cqc-text);
+  color: inherit;
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
 }
 

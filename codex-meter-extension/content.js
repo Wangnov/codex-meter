@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.4";
+  const CONTENT_SCRIPT_VERSION = "0.2.5";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -1211,18 +1211,64 @@
       return;
     }
 
-    const rows = rowsForTooltipText(elementText(tooltip), latestReport.dailyList);
+    const tooltipText = elementText(tooltip);
+    const rows = rowsForTooltipText(tooltipText, latestReport.dailyList);
     if (!rows.length) return;
 
     const key = rows.map((row) => row.date).join(",");
-    const existing = tooltip.querySelector(":scope > .cqc-chart-tooltip-detail");
+    const host = findOfficialTooltipCard(tooltip) || tooltip;
+    tooltip.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
+      if (detail.parentElement !== host) detail.remove();
+    });
+
+    const existing = host.querySelector(":scope > .cqc-chart-tooltip-detail");
     if (existing?.dataset.key === key) return;
 
     const detail = existing || document.createElement("div");
     detail.className = "cqc-chart-tooltip-detail";
     detail.dataset.key = key;
     detail.innerHTML = renderChartTooltipDetail(rows);
-    if (!existing) tooltip.appendChild(detail);
+    if (!existing) host.appendChild(detail);
+  };
+
+  const findOfficialTooltipCard = (tooltip) => {
+    const candidates = [tooltip, ...tooltip.querySelectorAll("div,section,article,ul,li")]
+      .filter(isVisibleElement)
+      .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
+      .filter((element) => {
+        const text = elementText(element);
+        return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
+      });
+    return candidates.sort((a, b) => tooltipCardScore(b, tooltip) - tooltipCardScore(a, tooltip))[0] || null;
+  };
+
+  const tooltipCardScore = (element, root) => {
+    const rect = element.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    const style = getComputedStyle(element);
+    const hasSurface =
+      style.backgroundColor &&
+      style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+      style.backgroundColor !== "transparent";
+    const borderWidth =
+      parseFloat(style.borderTopWidth) +
+      parseFloat(style.borderRightWidth) +
+      parseFloat(style.borderBottomWidth) +
+      parseFloat(style.borderLeftWidth);
+    const padding =
+      parseFloat(style.paddingTop) +
+      parseFloat(style.paddingRight) +
+      parseFloat(style.paddingBottom) +
+      parseFloat(style.paddingLeft);
+    let score = 0;
+    if (element !== root) score += 30;
+    if (hasSurface) score += 20;
+    if (style.boxShadow && style.boxShadow !== "none") score += 12;
+    if (parseFloat(style.borderRadius) > 0) score += 8;
+    if (borderWidth > 0) score += 6;
+    if (padding > 0) score += 4;
+    score += Math.max(0, 20 - area / 20000);
+    return score;
   };
 
   const findOfficialChartTooltip = () => {
@@ -1265,15 +1311,14 @@
       );
     }
     return latestReport?.dailyList?.some((row) =>
-      dateVariants(row.date).some((variant) => normalizedText(text).includes(normalizedText(variant))),
+      dateVariants(row.date).some((variant) => textContainsDateVariant(text, variant)),
     );
   };
 
   const rowsForTooltipText = (text, rows) => {
     if (!text || !Array.isArray(rows)) return [];
-    const normalized = normalizedText(text);
     const matches = rows.filter((row) =>
-      dateVariants(row.date).some((variant) => normalized.includes(normalizedText(variant))),
+      dateVariants(row.date).some((variant) => textContainsDateVariant(text, variant)),
     );
     if (matches.length <= 1) return matches;
     const sorted = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -1291,6 +1336,14 @@
       .replaceAll(",", "")
       .replace(/\s+/g, " ")
       .trim();
+
+  const textContainsDateVariant = (text, variant) => {
+    const normalized = normalizedText(text);
+    const candidate = normalizedText(variant);
+    if (!candidate) return false;
+    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, "u").test(normalized);
+  };
 
   const dateVariants = (dateKey) => {
     const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
