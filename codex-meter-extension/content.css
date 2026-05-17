@@ -358,6 +358,12 @@
   letter-spacing: inherit;
 }
 
+.cqc-chart-tooltip-host {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
 .cqc-chart-tooltip-title {
   margin: 0 0 6px;
   color: color-mix(in srgb, currentColor 72%, transparent);

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.2.6";
+  const CONTENT_SCRIPT_VERSION = "0.2.7";
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -37,6 +37,7 @@
       skeletonIdle: "点击“刷新”读取当前 Codex 用量数据。数据只保存在这台电脑上。",
       skeletonLoading: "正在读取 Codex 用量和每日明细...",
       updated: "数据已更新：{time}",
+      tooltipPending: "Codex Meter · 更新中",
       noToken: "没有在页面 bootstrap 数据里找到 ChatGPT Web token。请确认已登录并刷新页面。",
       openAnalyticsFirst: "请先打开 ChatGPT Codex analytics 页面。",
       limits: {
@@ -84,6 +85,7 @@
       skeletonIdle: "按一下「重新整理」讀取目前的 Codex 用量資料。資料只會儲存在這台電腦上。",
       skeletonLoading: "正在讀取 Codex 用量與每日明細...",
       updated: "資料已更新：{time}",
+      tooltipPending: "Codex Meter · 更新中",
       noToken: "在頁面 bootstrap 資料中找不到 ChatGPT Web token。請確認已登入並重新整理頁面。",
       openAnalyticsFirst: "請先開啟 ChatGPT Codex analytics 頁面。",
       limits: {
@@ -131,6 +133,7 @@
       skeletonIdle: "按「重新整理」讀取目前的 Codex 用量資料。資料只會儲存在這部電腦。",
       skeletonLoading: "正在讀取 Codex 用量及每日明細...",
       updated: "資料已更新：{time}",
+      tooltipPending: "Codex Meter · 更新中",
       noToken: "在頁面 bootstrap 資料入面找不到 ChatGPT Web token。請確認已登入並重新整理頁面。",
       openAnalyticsFirst: "請先開啟 ChatGPT Codex analytics 頁面。",
       limits: {
@@ -178,6 +181,7 @@
       skeletonIdle: "Click Refresh to read the current Codex usage data. Data stays on this computer.",
       skeletonLoading: "Reading Codex usage and daily details...",
       updated: "Data updated: {time}",
+      tooltipPending: "Codex Meter · updating",
       noToken: "Could not find the ChatGPT web token in the page bootstrap data. Make sure you are signed in and refresh the page.",
       openAnalyticsFirst: "Open the ChatGPT Codex analytics page first.",
       limits: {
@@ -225,6 +229,7 @@
       skeletonIdle: "「更新」をクリックして現在の Codex 使用量データを読み込みます。データはこのコンピューターにのみ保存されます。",
       skeletonLoading: "Codex の使用量と日別の詳細を読み込んでいます...",
       updated: "データ更新済み: {time}",
+      tooltipPending: "Codex Meter · 更新中",
       noToken: "ページの bootstrap データ内に ChatGPT Web token が見つかりません。ログイン済みであることを確認して、ページを更新してください。",
       openAnalyticsFirst: "先に ChatGPT Codex analytics ページを開いてください。",
       limits: {
@@ -272,6 +277,7 @@
       skeletonIdle: "Cliquez sur Actualiser pour lire les données d’utilisation Codex actuelles. Les données restent sur cet ordinateur.",
       skeletonLoading: "Lecture de l’utilisation Codex et des détails quotidiens...",
       updated: "Données mises à jour : {time}",
+      tooltipPending: "Codex Meter · mise à jour",
       noToken: "Impossible de trouver le token Web ChatGPT dans les données bootstrap de la page. Vérifiez que vous êtes connecté, puis actualisez la page.",
       openAnalyticsFirst: "Ouvrez d’abord la page ChatGPT Codex analytics.",
       limits: {
@@ -327,6 +333,7 @@
       skeletonIdle: "Нажмите «Обновить», чтобы считать текущие данные использования Codex. Данные остаются на этом компьютере.",
       skeletonLoading: "Чтение данных использования Codex и ежедневной детализации...",
       updated: "Данные обновлены: {time}",
+      tooltipPending: "Codex Meter · обновление",
       noToken: "Не удалось найти веб-токен ChatGPT в bootstrap-данных страницы. Убедитесь, что вы вошли в аккаунт, и обновите страницу.",
       openAnalyticsFirst: "Сначала откройте страницу аналитики ChatGPT Codex.",
       limits: {
@@ -374,6 +381,7 @@
       skeletonIdle: "Haz clic en Actualizar para leer los datos actuales de uso de Codex. Los datos se guardan solo en este equipo.",
       skeletonLoading: "Leyendo el uso de Codex y los detalles diarios...",
       updated: "Datos actualizados: {time}",
+      tooltipPending: "Codex Meter · actualizando",
       noToken: "No se encontró el token web de ChatGPT en los datos bootstrap de la página. Asegúrate de haber iniciado sesión y actualiza la página.",
       openAnalyticsFirst: "Abre primero la página de ChatGPT Codex analytics.",
       limits: {
@@ -421,6 +429,7 @@
       skeletonIdle: "Klicke auf Aktualisieren, um die aktuellen Codex-Nutzungsdaten zu laden. Die Daten bleiben auf diesem Computer.",
       skeletonLoading: "Codex-Nutzung und tägliche Details werden gelesen...",
       updated: "Daten aktualisiert: {time}",
+      tooltipPending: "Codex Meter · wird aktualisiert",
       noToken: "Das ChatGPT-Web-Token wurde in den Bootstrap-Daten der Seite nicht gefunden. Stelle sicher, dass du angemeldet bist, und lade die Seite neu.",
       openAnalyticsFirst: "Öffne zuerst die ChatGPT Codex analytics-Seite.",
       limits: {
@@ -627,23 +636,40 @@
       })
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
 
-  const sectionHeading = (section) =>
-    [...section.querySelectorAll("h2,h3")]
-      .filter(isVisibleElement)
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0] || null;
+  const isRenderableElement = (element) => {
+    if (!element || element.closest(`#${IDS.overlay}`)) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      element.getClientRects().length > 0 &&
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
+    );
+  };
 
-  const visibleHeadings = () =>
+  const mainHeadings = () =>
     [...document.querySelectorAll("main h1, main h2, main h3, main [role='heading']")]
-      .filter(isVisibleElement)
+      .filter(isRenderableElement)
       .filter((heading) => {
         const rect = heading.getBoundingClientRect();
         return rect.x > 240 && rect.width > 0;
-      })
+      });
+
+  const sectionHeading = (section) =>
+    [...section.querySelectorAll("h2,h3")]
+      .filter(isRenderableElement)
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0] || null;
+
+  const visibleHeadings = () =>
+    mainHeadings()
+      .filter(isVisibleElement)
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
 
   const findKnownHeading = (key) => {
     const labels = knownText(key);
-    return visibleHeadings().find((heading) => labels.includes(elementText(heading))) || null;
+    return mainHeadings().find((heading) => labels.includes(elementText(heading))) || null;
   };
 
   const sectionForHeading = (heading) => {
@@ -686,7 +712,12 @@
     const knownHeading = findKnownHeading("usageDetails");
     if (knownHeading) return mountForHeading(knownHeading);
 
-    const sections = visibleMainSections();
+    const sections = [...document.querySelectorAll("main section, main article, section")]
+      .filter(isRenderableElement)
+      .filter((section) => {
+        const rect = section.getBoundingClientRect();
+        return rect.x > 240 && rect.width > 500 && section.querySelector("h2,h3");
+      });
     const productLegendSection = sections.find((section) => {
       const text = elementText(section);
       return /\bDesktop App\b/.test(text) && /\bCLI\b/.test(text) && /\bCloud\b/.test(text);
@@ -695,22 +726,7 @@
       return mountForHeading(headingNearSection(productLegendSection));
     }
 
-    const structuredSection = sections.find((section) => {
-      const rect = section.getBoundingClientRect();
-      return rect.top > 320 && section.querySelector("h2") && section.querySelector("h3");
-    });
-    if (structuredSection) {
-      return mountForHeading(sectionHeading(structuredSection));
-    }
-
-    const main = document.querySelector("main");
-    return main
-      ? {
-          heading: main.querySelector("h1,h2,h3") || main,
-          section: document.body,
-          placement: "fixed",
-        }
-      : null;
+    return null;
   };
 
   const positionDetailButton = (button, heading, section, placement) => {
@@ -1260,8 +1276,11 @@
   const enhanceChartTooltip = () => {
     const tooltip = findOfficialChartTooltip();
     if (!tooltip) return;
+    const host = findOfficialTooltipCard(tooltip) || tooltip;
+    host.classList.add("cqc-chart-tooltip-host");
     if (!latestReport) {
-      ensurePassiveReport({ allowRefresh: false }).then((report) => {
+      renderPendingTooltipDetail(tooltip, host);
+      ensurePassiveReport({ allowRefresh: true }).then((report) => {
         if (report) scheduleChartTooltipEnhance();
       });
       return;
@@ -1272,7 +1291,6 @@
     if (!rows.length) return;
 
     const key = rows.map((row) => row.date).join(",");
-    const host = findOfficialTooltipCard(tooltip) || tooltip;
     tooltip.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
       if (detail.parentElement !== host) detail.remove();
     });
@@ -1286,6 +1304,22 @@
     detail.innerHTML = renderChartTooltipDetail(rows);
     applyOfficialTooltipTokens(detail, host);
     if (!existing) host.appendChild(detail);
+  };
+
+  const renderPendingTooltipDetail = (tooltip, host) => {
+    tooltip.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
+      if (detail.parentElement !== host) detail.remove();
+    });
+    let detail = host.querySelector(":scope > .cqc-chart-tooltip-detail");
+    if (!detail) {
+      detail = document.createElement("div");
+      detail.className = "cqc-chart-tooltip-detail";
+      host.appendChild(detail);
+    }
+    if (detail.dataset.key === "pending") return;
+    detail.dataset.key = "pending";
+    detail.innerHTML = `<div class="cqc-chart-tooltip-title">${escapeHtml(t("tooltipPending"))}</div>`;
+    applyOfficialTooltipTokens(detail, host);
   };
 
   const findOfficialTooltipCard = (tooltip) => {
@@ -1360,6 +1394,7 @@
 
   const hasTooltipDate = (text) => {
     if (!text) return false;
+    if (dateKeysFromTooltipText(text).length) return true;
     if (!latestReport?.dailyList?.length) {
       return (
         /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(text) ||
@@ -1374,6 +1409,18 @@
 
   const rowsForTooltipText = (text, rows) => {
     if (!text || !Array.isArray(rows)) return [];
+    const keys = dateKeysFromTooltipText(text);
+    if (keys.length) {
+      const exact = rows.filter((row) => keys.includes(row.date));
+      if (exact.length <= 1) return exact;
+      const sortedExact = [...exact].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const firstExact = sortedExact[0]?.date;
+      const lastExact = sortedExact.at(-1)?.date;
+      if (!firstExact || !lastExact) return sortedExact;
+      return rows
+        .filter((row) => row.date >= firstExact && row.date <= lastExact)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    }
     const matches = rows.filter((row) =>
       dateVariants(row.date).some((variant) => textContainsDateVariant(text, variant)),
     );
@@ -1393,6 +1440,70 @@
       .replaceAll(",", "")
       .replace(/\s+/g, " ")
       .trim();
+
+  const dateKeysFromTooltipText = (text) => {
+    const value = String(text || "");
+    const keys = [];
+    const addKey = (year, month, day) => {
+      const y = Number(year);
+      const m = Number(month);
+      const d = Number(day);
+      if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return;
+      if (y < 2000 || m < 1 || m > 12 || d < 1 || d > 31) return;
+      keys.push(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+    };
+
+    value.replace(/\b(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?\b/g, (_match, year, month, day) => {
+      addKey(year, month, day);
+      return _match;
+    });
+
+    const monthNames = {
+      jan: 1,
+      january: 1,
+      feb: 2,
+      february: 2,
+      mar: 3,
+      march: 3,
+      apr: 4,
+      april: 4,
+      may: 5,
+      jun: 6,
+      june: 6,
+      jul: 7,
+      july: 7,
+      aug: 8,
+      august: 8,
+      sep: 9,
+      sept: 9,
+      september: 9,
+      oct: 10,
+      october: 10,
+      nov: 11,
+      november: 11,
+      dec: 12,
+      december: 12,
+    };
+    value.replace(
+      /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b/gi,
+      (_match, monthName, day, year) => {
+        addKey(year, monthNames[String(monthName).toLowerCase()], day);
+        return _match;
+      },
+    );
+
+    const reportYears = [
+      ...new Set((latestReport?.dailyList || []).map((row) => String(row.date || "").slice(0, 4))),
+    ].filter(Boolean);
+    if (reportYears.length === 1) {
+      value.replace(/\b(\d{1,2})月(\d{1,2})日\b/g, (_match, month, day) => {
+        addKey(reportYears[0], month, day);
+        return _match;
+      });
+    }
+
+    return [...new Set(keys)];
+  };
 
   const officialTooltipText = (element) => {
     const clone = element.cloneNode(true);

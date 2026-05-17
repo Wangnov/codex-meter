@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Codex Meter",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local Codex quota and token analytics for the ChatGPT Codex analytics page.",
   "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": ["https://chatgpt.com/*"],
