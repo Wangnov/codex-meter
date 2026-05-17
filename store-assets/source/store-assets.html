@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex Meter Store Assets</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --black: #000;
+        --ink: #0d0d0d;
+        --muted: #6b6b6b;
+        --soft: #f4f4f2;
+        --line: #dededa;
+        --card: #efefed;
+        --red: #e5232a;
+        --brown: #8b2f15;
+        --blue: #2d55d7;
+        --pink: #df4397;
+        --green: #0f9969;
+        --amber: #f29a54;
+        --radius: 24px;
+        --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        font-family: var(--font);
+        background: #fff;
+      }
+
+      body {
+        display: grid;
+        place-items: stretch;
+      }
+
+      .asset {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .dark {
+        background: #000;
+        color: #f7f7f4;
+      }
+
+      .chrome {
+        display: grid;
+        grid-template-columns: 238px 1fr;
+        height: 100%;
+      }
+
+      .sidebar {
+        border-right: 1px solid rgba(128, 128, 128, 0.22);
+        padding: 22px 18px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      .logo {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 auto;
+      }
+
+      .nav {
+        margin-top: 68px;
+        display: grid;
+        gap: 18px;
+        color: #d7d7d3;
+        font-size: 16px;
+      }
+
+      .nav span {
+        padding: 11px 14px;
+        border-radius: 8px;
+      }
+
+      .nav .active {
+        background: #3f3f3f;
+        color: #fff;
+        font-weight: 650;
+      }
+
+      .content {
+        padding: 36px 46px 0;
+      }
+
+      .topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 30px;
+        line-height: 1.15;
+        font-weight: 720;
+        letter-spacing: -0.02em;
+      }
+
+      h2 {
+        font-size: 28px;
+        line-height: 1.2;
+        font-weight: 720;
+        letter-spacing: -0.02em;
+      }
+
+      h3 {
+        font-size: 26px;
+        line-height: 1.2;
+        font-weight: 720;
+        letter-spacing: -0.02em;
+      }
+
+      .tabs {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px;
+        border: 1px solid #cfcfca;
+        border-radius: 999px;
+        background: #e9e9e7;
+        color: #666;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+      }
+
+      .dark .tabs {
+        border-color: #3e3e3e;
+        background: #242424;
+        color: #b7b7b3;
+      }
+
+      .tabs span {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 70px;
+        height: 34px;
+        padding: 0 18px;
+        border-radius: 999px;
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .tabs .on {
+        background: #fff;
+        color: #111;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+      }
+
+      .dark .tabs .on {
+        background: #050505;
+        color: #fff;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        height: 42px;
+        padding: 0 18px;
+        border: 1px solid #d0d0cc;
+        border-radius: 999px;
+        background: #fff;
+        color: #111;
+        font-size: 17px;
+        font-weight: 680;
+        white-space: nowrap;
+      }
+
+      .dark .button {
+        border-color: #333;
+        background: #000;
+        color: #fff;
+      }
+
+      .meter-icon {
+        width: 22px;
+        height: 22px;
+      }
+
+      .rule {
+        height: 1px;
+        margin: 24px 0 28px;
+        background: rgba(128, 128, 128, 0.22);
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 36px;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .info {
+        width: 20px;
+        height: 20px;
+        border: 2px solid currentColor;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .control-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .metric {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        height: 42px;
+        padding: 0 18px;
+        border: 1px solid #d0d0cc;
+        border-radius: 999px;
+        background: #fff;
+        color: #111;
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .dark .metric {
+        border-color: #333;
+        background: #000;
+        color: #fff;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        background: var(--red);
+      }
+
+      .chart-title {
+        margin-bottom: 56px;
+      }
+
+      .chart {
+        position: relative;
+        height: 390px;
+        margin: 0 0 0;
+      }
+
+      .axis-top {
+        position: absolute;
+        top: 36px;
+        left: 46px;
+        color: #696969;
+        font-size: 15px;
+      }
+
+      .axis-bottom {
+        position: absolute;
+        left: 46px;
+        right: 0;
+        bottom: 87px;
+        height: 1px;
+        background: rgba(112, 112, 112, 0.36);
+      }
+
+      .axis-zero {
+        position: absolute;
+        left: 26px;
+        bottom: 75px;
+        color: #696969;
+        font-size: 16px;
+      }
+
+      .date-left,
+      .date-right {
+        position: absolute;
+        bottom: 45px;
+        color: #696969;
+        font-size: 17px;
+      }
+
+      .date-left {
+        left: 46px;
+      }
+
+      .date-right {
+        right: 14px;
+      }
+
+      .bars {
+        position: absolute;
+        left: 46px;
+        right: 10px;
+        bottom: 87px;
+        height: 270px;
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .bar {
+        width: 32px;
+        min-width: 10px;
+        height: calc(var(--h) * 1%);
+        border-radius: 6px 6px 0 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column-reverse;
+        background: var(--red);
+      }
+
+      .seg {
+        width: 100%;
+      }
+
+      .seg.red {
+        background: var(--red);
+      }
+
+      .seg.brown {
+        background: var(--brown);
+      }
+
+      .seg.blue {
+        background: var(--blue);
+      }
+
+      .seg.pink {
+        background: var(--pink);
+      }
+
+      .hover-band {
+        position: absolute;
+        bottom: 87px;
+        width: 42px;
+        height: 270px;
+        background: rgba(110, 110, 118, 0.22);
+      }
+
+      .tooltip {
+        position: absolute;
+        width: 290px;
+        padding: 16px 18px;
+        border: 1px solid #d6d6d2;
+        border-radius: 12px;
+        background: #fff;
+        color: #111;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+      }
+
+      .dark .tooltip {
+        border-color: #333;
+        background: #151515;
+        color: #f7f7f4;
+      }
+
+      .tooltip h4 {
+        margin: 0 0 10px;
+        font-size: 17px;
+        font-weight: 650;
+      }
+
+      .tip-row,
+      .legend span {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .tip-row {
+        justify-content: space-between;
+        font-size: 16px;
+        line-height: 1.8;
+      }
+
+      .tip-row b {
+        font-weight: 500;
+      }
+
+      .swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        background: var(--red);
+        flex: 0 0 auto;
+      }
+
+      .legend {
+        display: flex;
+        gap: 42px;
+        margin-left: 46px;
+        color: currentColor;
+        font-size: 18px;
+      }
+
+      .modal-scene {
+        background:
+          radial-gradient(circle at 80% 20%, rgba(229, 35, 42, 0.12), transparent 36%),
+          #f7f7f5;
+      }
+
+      .modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.52);
+        display: grid;
+        place-items: center;
+      }
+
+      .modal {
+        position: relative;
+        width: 1030px;
+        height: 680px;
+        border: 1px solid #d7d7d2;
+        border-radius: 32px;
+        background: #f7f7f5;
+        color: #111;
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
+        padding: 46px 56px;
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .close {
+        font-size: 34px;
+        line-height: 1;
+      }
+
+      .status {
+        margin: 42px 0 28px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        height: 82px;
+        padding: 0 32px;
+        border: 1px solid #dfdfdc;
+        border-radius: 28px;
+        background: #efefed;
+        color: #5e5e5d;
+        font-size: 22px;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+
+      .card {
+        min-height: 150px;
+        padding: 26px 28px;
+        border: 1px solid #dededa;
+        border-radius: 24px;
+        background: #eeeeec;
+      }
+
+      .card .label {
+        color: #8a8a88;
+        font-size: 19px;
+        font-weight: 700;
+      }
+
+      .card .value {
+        margin-top: 22px;
+        font-size: 42px;
+        font-weight: 760;
+        letter-spacing: -0.03em;
+      }
+
+      .card .hint {
+        margin-top: 18px;
+        color: #8a8a88;
+        font-size: 16px;
+      }
+
+      .table-section {
+        margin-top: 36px;
+      }
+
+      .section-subhead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #555;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 18px;
+        border-collapse: collapse;
+        font-size: 18px;
+      }
+
+      th,
+      td {
+        padding: 15px 18px;
+        border-bottom: 1px solid #dededa;
+        text-align: left;
+      }
+
+      th {
+        color: #8a8a88;
+        font-weight: 700;
+      }
+
+      .promo {
+        background: #050505;
+        color: #f7f7f4;
+      }
+
+      .small-promo {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 24px;
+        padding: 34px;
+      }
+
+      .small-promo .logo {
+        width: 112px;
+        height: 112px;
+        align-self: center;
+      }
+
+      .small-promo h1 {
+        font-size: 38px;
+      }
+
+      .small-promo p {
+        margin-top: 12px;
+        color: #cfcfca;
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      .mini-cards {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .mini-cards span {
+        padding: 9px 12px;
+        border: 1px solid #333;
+        border-radius: 999px;
+        color: #f4f4f2;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .marquee {
+        padding: 54px 74px;
+        background:
+          radial-gradient(circle at 78% 16%, rgba(229, 35, 42, 0.2), transparent 34%),
+          #050505;
+        color: #f7f7f4;
+      }
+
+      .marquee-grid {
+        display: grid;
+        grid-template-columns: 430px 1fr;
+        gap: 64px;
+        height: 100%;
+        align-items: center;
+      }
+
+      .marquee h1 {
+        font-size: 64px;
+        line-height: 0.98;
+      }
+
+      .marquee p {
+        margin-top: 22px;
+        color: #cfcfca;
+        font-size: 24px;
+        line-height: 1.35;
+      }
+
+      .hero-window {
+        height: 410px;
+        border: 1px solid #303030;
+        border-radius: 28px;
+        background: #101010;
+        padding: 28px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+      }
+
+      .hero-window .topline {
+        gap: 18px;
+        justify-content: flex-start;
+      }
+
+      .marquee .tabs span {
+        min-width: 58px;
+        height: 32px;
+        padding: 0 14px;
+        font-size: 15px;
+      }
+
+      .marquee .button {
+        height: 40px;
+        padding: 0 14px;
+        font-size: 15px;
+      }
+
+      .hero-bars {
+        height: 174px;
+        display: flex;
+        align-items: end;
+        gap: 14px;
+        margin-top: 28px;
+        padding-bottom: 1px;
+        border-bottom: 1px solid #565656;
+      }
+
+      .hero-bars span {
+        width: 24px;
+        height: calc(var(--h) * 1%);
+        border-radius: 6px 6px 0 0;
+        background: var(--red);
+      }
+
+      .store-icon {
+        display: grid;
+        place-items: center;
+        background: #050505;
+      }
+
+      .store-icon .logo {
+        width: 112px;
+        height: 112px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const qs = new URLSearchParams(location.search);
+      const asset = qs.get("asset") || "screenshot1";
+
+      const logo = `<img class="logo" src="./source-logo.png" alt="" aria-hidden="true" />`;
+
+      const meterIcon = `
+        <svg class="meter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/><path d="M14 19a2 2 0 0 0-4 0"/>
+        </svg>`;
+
+      const chartBars = (metric = false) =>
+        [7, 9, 8, 1, 30, 19, 15, 0.5, 21, 10, 22, 6, 5, 7, 12, 44, 52, 45, 22, 11, 2, 3, 6, 20, 16, 14, 92, 24]
+          .map((h, index) => {
+            if (metric) {
+              const uncached = Math.max(8, Math.round(h * 0.16));
+              const cached = Math.max(0, 100 - uncached - 3);
+              return `<div class="bar" style="--h:${h}"><span class="seg red" style="height:${uncached}%"></span><span class="seg brown" style="height:${cached}%"></span><span class="seg blue" style="height:3%"></span></div>`;
+            }
+            const red = Math.max(7, 70 - (index % 5) * 8);
+            const brown = Math.max(0, 100 - red);
+            return `<div class="bar" style="--h:${h}"><span class="seg red" style="height:${red}%"></span><span class="seg brown" style="height:${brown}%"></span></div>`;
+          })
+          .join("");
+
+      const chromeShell = (body, dark = true) => `
+        <div class="asset ${dark ? "dark" : ""}">
+          <div class="chrome">
+            <aside class="sidebar">
+              <div class="brand">${logo}<span>Codex</span></div>
+              <div class="nav">
+                <span>常规</span><span>环境</span><span>代码审查</span><span>连接器</span><span class="active">分析</span><span>数据控制</span>
+              </div>
+            </aside>
+            <main class="content">${body}</main>
+          </div>
+        </div>`;
+
+      const chart = ({ meter = false, dark = true, label = "100%", metricLabel = "" } = {}) => `
+        <div class="chart">
+          <div class="axis-top">${label}</div>
+          <div class="axis-zero">0%</div>
+          <div class="axis-bottom"></div>
+          <div class="hover-band" style="left:${meter ? "460px" : "72px"}"></div>
+          <div class="bars">${chartBars(meter)}</div>
+          <div class="date-left">4月18日</div>
+          <div class="date-right">5月17日</div>
+          <div class="tooltip" style="left:${meter ? "512px" : "120px"}; top:${meter ? "112px" : "120px"}">
+            <h4>${meter ? "May 13, 2026" : "May 16, 2026"}</h4>
+            ${
+              meter
+                ? `<div class="tip-row"><span><i class="swatch"></i>未缓存输入</span><b>86.3M</b></div><div class="tip-row"><span><i class="swatch" style="background:var(--brown)"></i>缓存输入</span><b>502.9M</b></div><div class="tip-row"><span><i class="swatch" style="background:var(--blue)"></i>输出 Tokens</span><b>1.5M</b></div>`
+                : `<div class="tip-row"><span><i class="swatch"></i>Desktop App</span><b>91%</b></div><div class="tip-row"><span><i class="swatch" style="background:var(--brown)"></i>Exec</span><b>9%</b></div>`
+            }
+          </div>
+        </div>
+        <div class="legend">
+          ${
+            meter
+              ? `<span><i class="swatch"></i>未缓存输入</span><span><i class="swatch" style="background:var(--brown)"></i>缓存输入</span><span><i class="swatch" style="background:var(--blue)"></i>输出 Tokens</span>`
+              : `<span><i class="swatch"></i>Desktop App</span><span><i class="swatch" style="background:var(--pink)"></i>CLI</span><span><i class="swatch" style="background:var(--blue)"></i>Cloud</span><span><i class="swatch" style="background:var(--brown)"></i>Exec</span><span><i class="swatch" style="background:#6f7784"></i>Other</span>`
+          }
+        </div>`;
+
+      const screenshot1 = () =>
+        chromeShell(`
+          <div class="topline">
+            <h1>Codex 分析</h1>
+            <div class="tabs"><span>7天</span><span class="on">1个月</span><span>自定义</span></div>
+          </div>
+          <div class="rule"></div>
+          <div class="section-head">
+            <div class="section-title"><h2>使用详情</h2><span class="info">i</span></div>
+            <div class="control-row"><div class="tabs"><span class="on">按来源</span><span>Meter</span></div><div class="button">${meterIcon}<span>Codex Meter</span></div></div>
+          </div>
+          <h3 class="chart-title">个人使用</h3>
+          ${chart()}
+        `);
+
+      const screenshot2 = () => `
+        <div class="asset modal-scene">
+          <div class="modal-backdrop">
+            <section class="modal">
+              <div class="modal-header"><h1>Codex Meter</h1><div class="close">×</div></div>
+              <div class="status"><span>✓</span><span>数据已更新：2026/5/17 14:00:00</span></div>
+              <div class="cards">
+                <div class="card"><div class="label">本周期剩余额度比例</div><div class="value">71.0%</div><div class="hint">来自官方每周限额进度。</div></div>
+                <div class="card"><div class="label">本周期已用 Credits</div><div class="value">62,850</div><div class="hint">按每日用量明细加总。</div></div>
+                <div class="card"><div class="label">推算周总 Credits</div><div class="value">~216K</div><div class="hint">每日 Credits ÷ 官方已用比例。</div></div>
+                <div class="card"><div class="label">本周期总 Tokens</div><div class="value">1.22B</div><div class="hint">输入、缓存、输出分层统计。</div></div>
+                <div class="card"><div class="label">输入缓存命中率</div><div class="value">86.7%</div><div class="hint">缓存输入占全部输入 Tokens。</div></div>
+                <div class="card"><div class="label">推算周价值</div><div class="value">$8,669</div><div class="hint">按 1000 Credits = US$40 估算。</div></div>
+              </div>
+            </section>
+          </div>
+        </div>`;
+
+      const screenshot3 = () =>
+        chromeShell(`
+          <div class="topline">
+            <h1>Codex 分析</h1>
+            <div class="tabs"><span>7天</span><span class="on">1个月</span><span>自定义</span></div>
+          </div>
+          <div class="rule"></div>
+          <div class="section-head">
+            <div class="section-title"><h2>使用详情</h2><span class="info">i</span></div>
+            <div class="control-row"><div class="tabs"><span>按来源</span><span class="on">Meter</span></div><div class="metric"><i class="dot" style="background:var(--blue)"></i><span>总 Tokens</span><span>⌄</span></div><div class="button">${meterIcon}<span>Codex Meter</span></div></div>
+          </div>
+          <h3 class="chart-title">个人使用</h3>
+          ${chart({ meter: true, label: "918.73M" })}
+        `);
+
+      const screenshot4 = () => `
+        <div class="asset modal-scene">
+          <div class="modal-backdrop">
+            <section class="modal">
+              <div class="modal-header"><h1>Codex Meter</h1><div class="close">×</div></div>
+              <div class="table-section" style="margin-top:34px">
+                <div class="section-subhead"><h2>本周期每日用量</h2><p>从 2026-05-16 开始统计</p></div>
+                <table>
+                  <thead><tr><th>日期</th><th>Credits</th><th>总 Tokens</th><th>输入 Tokens</th><th>缓存命中</th><th>折算金额</th><th>轮数</th></tr></thead>
+                  <tbody>
+                    <tr><td>2026-05-17</td><td>9,442.470</td><td>305.39M</td><td>303.90M</td><td>87%</td><td>$377.70</td><td>308</td></tr>
+                    <tr><td>2026-05-16</td><td>53,407.922</td><td>918.73M</td><td>910.20M</td><td>86%</td><td>$2,136.32</td><td>949</td></tr>
+                    <tr><td><b>合计</b></td><td><b>62,850.392</b></td><td><b>1.22B</b></td><td><b>1.21B</b></td><td><b>87%</b></td><td><b>$2,514.02</b></td><td><b>1,257</b></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="table-section">
+                <div class="section-subhead"><h2>周期外历史用量</h2><p>2026-04-17 至 2026-05-15</p></div>
+                <table>
+                  <tbody>
+                    <tr><td>2026-05-15</td><td>5,950.466</td><td>223.66M</td><td>$238.02</td><td>234 轮</td></tr>
+                    <tr><td>2026-05-14</td><td>6,868.097</td><td>189.58M</td><td>$274.72</td><td>313 轮</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style="position:absolute; right:58px; bottom:38px; display:flex; gap:14px"><div class="button">CSV</div><div class="button">JSON</div><div class="button" style="background:#000;color:#fff">刷新</div></div>
+            </section>
+          </div>
+        </div>`;
+
+      const smallPromo = () => `
+        <div class="asset promo small-promo">
+          ${logo}
+          <div>
+            <h1>Codex Meter</h1>
+            <p>Codex Credits, Tokens, and weekly quota insight inside ChatGPT.</p>
+            <div class="mini-cards"><span>Credits</span><span>Tokens</span><span>CSV</span></div>
+          </div>
+        </div>`;
+
+      const marquee = () => `
+        <div class="asset marquee">
+          <div class="marquee-grid">
+            <div>
+              ${logo}
+              <h1 style="margin-top:22px">Codex Meter</h1>
+              <p>Native-feeling quota and token analytics for the ChatGPT Codex page.</p>
+            </div>
+            <div class="hero-window">
+              <div class="topline"><h2>使用详情</h2><div class="control-row"><div class="tabs"><span>按来源</span><span class="on">Meter</span></div><div class="metric"><i class="dot"></i><span>Credits</span></div></div></div>
+              <div class="hero-bars">${[18,13,15,72,48,46,34,64,22,18,26,58,74,62,31,8,12,24,45,33,37,96,41].map((h) => `<span style="--h:${h}"></span>`).join("")}</div>
+              <div class="legend" style="margin:34px 0 0; gap:28px"><span><i class="swatch"></i>Credits</span><span><i class="swatch" style="background:var(--blue)"></i>Tokens</span><span><i class="swatch" style="background:var(--green)"></i>Value</span></div>
+            </div>
+          </div>
+        </div>`;
+
+      const storeIcon = () => `<div class="asset store-icon">${logo}</div>`;
+
+      const views = {
+        screenshot1,
+        screenshot2,
+        screenshot3,
+        screenshot4,
+        smallPromo,
+        marquee,
+        storeIcon,
+      };
+
+      document.getElementById("root").innerHTML = (views[asset] || screenshot1)();
+    </script>
+  </body>
+</html>

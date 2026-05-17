@@ -3,6 +3,10 @@
 
 # Packaged Chrome extension artifacts
 *.zip
+*.crx
+*.pem
+dist/
+store-assets/.tmp/
 
 # Local editor and temporary files
 *.swp

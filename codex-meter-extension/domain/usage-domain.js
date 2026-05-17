@@ -13,6 +13,8 @@
     return `${year}-${month}-${day}`;
   };
 
+  const utcDate = (date = new Date()) => date.toISOString().split("T")[0];
+
   const addDays = (date, days) => {
     const copy = new Date(date);
     copy.setDate(copy.getDate() + days);
@@ -63,7 +65,7 @@
     const resetAt = n(value.reset_at);
     const seconds = n(value.limit_window_seconds);
     const cycleStart =
-      resetAt > 0 && seconds > 0 ? localDate(new Date((resetAt - seconds) * 1000)) : null;
+      resetAt > 0 && seconds > 0 ? utcDate(new Date((resetAt - seconds) * 1000)) : null;
 
     return {
       key: path.join("."),
@@ -178,5 +180,6 @@
     n,
     tokenInput,
     tokenTotal,
+    utcDate,
   };
 })();

@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="./logo.png" width="220" alt="Codex Meter logo">
+  <img src="./store-assets/images/marquee-promo-1400x560.jpg" alt="Codex Meter">
+</p>
+
+<p align="center">
+  <img src="./assets/logo.png" width="160" alt="Codex Meter logo">
 </p>
 
 <h1 align="center">Codex Meter</h1>
@@ -18,13 +22,25 @@
   <a href="#readme-cn">中文</a> · <a href="#readme-en">English</a>
 </p>
 
+## Screenshots / 截图
+
+<p align="center">
+  <img src="./store-assets/images/screenshot-1-analytics-button.jpg" width="49%" alt="Codex Meter button on the Codex analytics page">
+  <img src="./store-assets/images/screenshot-2-quota-modal.jpg" width="49%" alt="Codex Meter quota modal">
+</p>
+
+<p align="center">
+  <img src="./store-assets/images/screenshot-3-meter-chart.jpg" width="49%" alt="Codex Meter metric chart">
+  <img src="./store-assets/images/screenshot-4-history-export.jpg" width="49%" alt="Codex Meter history and export controls">
+</p>
+
 ---
 
 <a id="readme-cn"></a>
 
 # 中文
 
-`Codex Meter` 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析页面。它会在 Codex analytics 页面里的「使用详情」旁边加入一个按钮，点击后用接近官方 Codex 弹窗的界面展示本周期 Credits、Tokens、缓存命中率、折算金额和每日明细。
+`Codex Meter` 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析页面。它会在 Codex analytics 页面里的「使用详情」旁边加入入口按钮和图表控制器，并用贴近 Codex 官方界面的弹窗展示本周期 Credits、Tokens、缓存命中率、推算周额度、折算金额和每日明细。
 
 它不需要额外登录，也不会保存 ChatGPT Web token。刷新数据时，它只在当前页面内读取 ChatGPT 页面已经持有的鉴权信息，并请求同一组 Codex Web analytics 接口。
 
@@ -38,9 +54,12 @@
 ## 功能
 
 - 在 `https://chatgpt.com/codex/cloud/settings/analytics` 的「使用详情」右侧加入 `Codex Meter` 按钮
+- 在官方「按来源」图表旁加入 `Meter` 图表视图，支持 Credits、总 Tokens、折算金额、轮数等指标
+- Meter 图表跟随页面顶部的 7 天 / 1 个月 / 自定义范围，以及天 / 周分组方式
+- 总 Tokens 图表按未缓存输入、缓存输入、输出 Tokens 分层展示
 - 使用 Codex 页面 CSS 变量，跟随浅色 / 深色主题
 - 按页面 locale 自动切换文案，内置 `zh-CN`、`zh-TW`、`zh-HK`、`en-US`、`ja-JP`、`fr-FR`、`ru-RU`、`es-ES`、`de-DE`
-- 统计本周期 Credits、总 Tokens、输入 Tokens、缓存命中率和估算金额
+- 统计本周期 Credits、总 Tokens、输入 Tokens、缓存命中率、推算周额度和折算金额
 - 展示本周期每日明细和周期外历史明细
 - 支持 JSON / CSV 导出
 - 用 `chrome.storage.local` 保存紧凑的本地快照
@@ -73,7 +92,7 @@ codex-meter/codex-meter-extension
 
 - 扩展不会保存 ChatGPT Web bearer token
 - 用量快照只保存在本机 Chrome 的 `storage.local`
-- 这个项目依赖 ChatGPT Web 的私有 `wham` analytics 接口；如果 OpenAI 调整页面结构或接口字段，扩展可能需要更新
+- 这个项目依赖 ChatGPT Web 的私有 `wham` analytics 接口；如果 OpenAI 调整页面结构或接口字段，扩展可能需要适配
 - 本项目不是 OpenAI 官方项目，也不与 OpenAI 存在隶属关系
 
 ## 开发
@@ -99,7 +118,7 @@ unzip -t codex-meter-extension.zip
 
 # English
 
-`Codex Meter` is a local Chrome extension for the ChatGPT Codex analytics page. It adds a button beside the usage details section and opens a Codex-native-feeling modal for cycle Credits, Tokens, cache hit rate, estimated value, and daily usage rows.
+`Codex Meter` is a local Chrome extension for the ChatGPT Codex analytics page. It adds an entry button and chart controls beside the usage details section, plus a Codex-native-feeling modal for cycle Credits, Tokens, cache hit rate, projected weekly Credits, estimated value, and daily usage rows.
 
 It does not require another login and does not store your ChatGPT Web token. When you refresh data, it reads the authentication already available on the current ChatGPT page and calls the same Codex Web analytics endpoints.
 
@@ -113,9 +132,12 @@ It does not require another login and does not store your ChatGPT Web token. Whe
 ## Features
 
 - Adds a `Codex Meter` button beside Usage details on `https://chatgpt.com/codex/cloud/settings/analytics`
+- Adds a `Meter` chart view beside the official source chart, with Credits, total Tokens, estimated USD value, and turns
+- Follows the page-level 7 days / 1 month / custom range and day / week grouping controls
+- Shows total Tokens as uncached input, cached input, and output token layers
 - Uses Codex page CSS variables and follows light / dark theme where available
 - Follows the page locale, with copy for `zh-CN`, `zh-TW`, `zh-HK`, `en-US`, `ja-JP`, `fr-FR`, `ru-RU`, `es-ES`, and `de-DE`
-- Shows cycle Credits, total Tokens, input Tokens, cache hit rate, and estimated USD value
+- Shows cycle Credits, total Tokens, input Tokens, cache hit rate, projected weekly Credits, and estimated USD value
 - Shows current-cycle daily rows and out-of-cycle history rows
 - Exports JSON and CSV
 - Stores compact local snapshots in `chrome.storage.local`
@@ -148,7 +170,7 @@ codex-meter/codex-meter-extension
 
 - The extension does not store the ChatGPT Web bearer token
 - Usage snapshots stay in local Chrome `storage.local`
-- This depends on private ChatGPT Web `wham` analytics endpoints; if OpenAI changes the page or fields, the extension may need updates
+- This depends on private ChatGPT Web `wham` analytics endpoints; if OpenAI changes the page or fields, the extension may need adjustments
 - This project is not an official OpenAI project and is not affiliated with OpenAI
 
 ## Development
