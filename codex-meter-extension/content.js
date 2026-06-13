@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.4.19";
+  const CONTENT_SCRIPT_VERSION = "0.4.20";
   const ENABLE_CHART_TOOLTIP_ENHANCER = false;
   const CHART_IDS = {
     controls: "codex-meter-chart-controls",
@@ -37,7 +37,7 @@
   }
   window.__codexQuotaCompassInstalled = CONTENT_SCRIPT_VERSION;
 
-  const { CONFIG, IDS, isAnalyticsRoute } = window.CodexMeterConfig;
+  const { CONFIG, DEFAULT_SETTINGS, IDS, isAnalyticsRoute } = window.CodexMeterConfig;
   const domain = window.CodexMeterDomain;
   const chatGptClient = window.CodexMeterChatGptClient;
   const reportRepository = window.CodexMeterReportRepository;
@@ -53,9 +53,20 @@
   let usageChartResizeFrame = 0;
   let usageChartMode = CHART_MODES.source;
   let meterChartMetric = CHART_METRICS.credits;
+  let meterSettings = { ...DEFAULT_SETTINGS };
   let renderedMeterChartRows = [];
   let lastPassiveRefreshAt = 0;
   const PASSIVE_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+  const isValidChartMode = (mode) => mode === CHART_MODES.source || mode === CHART_MODES.meter;
+
+  const normalizeSettings = (settings = {}) => ({
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    defaultChartMode: isValidChartMode(settings.defaultChartMode)
+      ? settings.defaultChartMode
+      : DEFAULT_SETTINGS.defaultChartMode,
+  });
 
   try {
     const storedMode = window.localStorage?.getItem(CHART_MODE_STORAGE_KEY);
@@ -74,6 +85,40 @@
   } catch {
     meterChartMetric = CHART_METRICS.credits;
   }
+
+  const applyMeterSettings = (settings, { syncChartMode = true } = {}) => {
+    meterSettings = normalizeSettings(settings);
+    if (syncChartMode && isValidChartMode(meterSettings.defaultChartMode)) {
+      setUsageChartMode(meterSettings.defaultChartMode, { persistSettings: false });
+      updateVisibility();
+      return;
+    }
+    updateVisibility();
+  };
+
+  const loadMeterSettings = async () => {
+    try {
+      const data = await chrome.storage.local.get(CONFIG.STORAGE_SETTINGS);
+      applyMeterSettings(data[CONFIG.STORAGE_SETTINGS], { syncChartMode: true });
+    } catch {
+      applyMeterSettings(DEFAULT_SETTINGS, { syncChartMode: true });
+    }
+  };
+
+  const saveMeterSettings = async (patch) => {
+    const nextSettings = normalizeSettings({ ...meterSettings, ...patch });
+    meterSettings = nextSettings;
+    await chrome.storage.local.set({ [CONFIG.STORAGE_SETTINGS]: nextSettings });
+  };
+
+  const installSettingsSync = () => {
+    if (installSettingsSync.didInstall) return;
+    installSettingsSync.didInstall = true;
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes[CONFIG.STORAGE_SETTINGS]) return;
+      applyMeterSettings(changes[CONFIG.STORAGE_SETTINGS].newValue, { syncChartMode: true });
+    });
+  };
 
   const MESSAGES = {
     "zh-CN": {
@@ -1022,7 +1067,7 @@
   };
 
   const ensureDetailButton = () => {
-    if (!isAnalyticsRoute()) {
+    if (!isAnalyticsRoute() || !meterSettings.showPageButton) {
       removeDetailButton();
       return false;
     }
@@ -1068,7 +1113,7 @@
   };
 
   const ensureUsageChartSwitch = () => {
-    if (!isAnalyticsRoute()) {
+    if (!isAnalyticsRoute() || !meterSettings.showChartControls) {
       removeUsageChartSwitch();
       return false;
     }
@@ -1191,13 +1236,16 @@
     });
   };
 
-  const setUsageChartMode = (mode) => {
+  const setUsageChartMode = (mode, { persistSettings = true } = {}) => {
     if (mode !== CHART_MODES.source && mode !== CHART_MODES.meter) return;
     if (mode === usageChartMode) return;
     usageChartMode = mode;
     try {
       window.localStorage?.setItem(CHART_MODE_STORAGE_KEY, mode);
     } catch {}
+    if (persistSettings) {
+      saveMeterSettings({ defaultChartMode: mode }).catch(() => {});
+    }
     if (mode === CHART_MODES.source) {
       document.querySelectorAll("[data-cqm-meter-chart-mode]").forEach((section) => {
         setDatasetIfChanged(section, "cqmMeterChartMode", mode);
@@ -2037,8 +2085,16 @@
     const visible = isAnalyticsRoute();
     if (visible) {
       ensureUi();
-      ensureDetailButton();
-      ensureUsageChartSwitch();
+      if (meterSettings.showPageButton) {
+        ensureDetailButton();
+      } else {
+        removeDetailButton();
+      }
+      if (meterSettings.showChartControls) {
+        ensureUsageChartSwitch();
+      } else {
+        removeUsageChartSwitch();
+      }
       if (ENABLE_CHART_TOOLTIP_ENHANCER) {
         installChartTooltipEnhancer();
         warmChartReport();
@@ -2847,8 +2903,8 @@
       const routeChanged = route !== lastRoute;
       const hasButton = Boolean(document.getElementById(IDS.button));
       const hasChartSwitch = Boolean(document.getElementById(CHART_IDS.switcher));
-      const needsButton = isAnalyticsRoute() && !hasButton;
-      const needsChartSwitch = isAnalyticsRoute() && !hasChartSwitch;
+      const needsButton = isAnalyticsRoute() && meterSettings.showPageButton && !hasButton;
+      const needsChartSwitch = isAnalyticsRoute() && meterSettings.showChartControls && !hasChartSwitch;
       const staleButton = !isAnalyticsRoute() && hasButton;
       if (!routeChanged && !needsButton && !needsChartSwitch && !staleButton) return;
       lastRoute = route;
@@ -2946,11 +3002,13 @@
 
   const init = () => {
     ensureChromeRuntimeListener();
+    installSettingsSync();
     installRouteObserver();
     installUsageChartControlSync();
     installUsageChartResizeSync();
     window.__codexQuotaCompassUpdateVisibility = updateVisibility;
     updateVisibility();
+    loadMeterSettings();
   };
 
   init();

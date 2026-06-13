@@ -10,7 +10,7 @@ Track Codex Credits, token usage, weekly quota estimates, and daily analytics in
 
 ## Detailed Description
 
-Codex Meter is a local Chrome extension for the ChatGPT Codex analytics page. It adds a native-feeling Meter button beside the Usage details section and opens a clean modal for Codex Credits, Tokens, cache hit rate, estimated value, and daily usage rows.
+Codex Meter is a local Chrome extension for the ChatGPT Codex analytics page. It adds a native-feeling Meter button beside the Usage details section, opens a clean in-page modal for Codex Credits, Tokens, cache hit rate, estimated value, and daily usage rows, and uses the browser extension popup as a compact control panel.
 
 The extension is designed to feel like part of Codex. It follows the page theme, uses local inline icons, and supports multiple page locales including Simplified Chinese, Traditional Chinese, English, Japanese, French, Russian, Spanish, and German.
 
@@ -21,6 +21,7 @@ Core features:
 - Compare daily usage with history outside the current quota cycle.
 - Switch the analytics chart between the official source view and Codex Meter metrics.
 - Inspect Credits, total Tokens, estimated value, and turns in a Codex-style chart.
+- Manage the in-page button, chart controls, default chart mode, and local snapshots from the extension popup.
 - Export the latest data as CSV or JSON.
 - Keep compact snapshots locally in Chrome storage.
 
@@ -34,7 +35,7 @@ This project is not an official OpenAI project and is not affiliated with OpenAI
 
 ## Chinese Description
 
-Codex Meter 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析页面。它会在「使用详情」旁边加入一个贴近 Codex 官方风格的 Meter 按钮，打开后展示本周期 Credits、Tokens、缓存命中率、推算周额度、估算金额和每日明细。
+Codex Meter 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析页面。它会在「使用详情」旁边加入一个贴近 Codex 官方风格的 Meter 按钮，打开页面内弹窗后展示本周期 Credits、Tokens、缓存命中率、推算周额度、估算金额和每日明细；浏览器扩展弹窗则作为紧凑管理面板。
 
 主要功能：
 
@@ -43,6 +44,7 @@ Codex Meter 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析
 - 查看本周期每日用量与周期外历史记录。
 - 在官方「按来源」图表和 Codex Meter 指标图表之间切换。
 - 按 Credits、总 Tokens、折算金额、轮数等指标查看图表。
+- 在浏览器扩展弹窗里管理页面内按钮、图表控制、默认图表模式和本地快照。
 - 导出 CSV / JSON。
 - 用本地 `chrome.storage.local` 保存紧凑快照。
 

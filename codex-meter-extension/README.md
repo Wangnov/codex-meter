@@ -5,12 +5,13 @@ Local Chrome extension for the ChatGPT Codex analytics page.
 ## What It Does
 
 - Adds a `Codex Meter` button to the right side of the usage details area on `https://chatgpt.com/codex/cloud/settings/analytics`.
-- Opens a native-feeling Codex modal for credits, token totals, cache hit rate, and estimated value.
+- Opens a native-feeling Codex in-page modal for credits, token totals, cache hit rate, and estimated value.
+- Uses the browser extension popup as a management panel for the in-page button, chart controls, default chart mode, and local snapshots.
 - Keeps the modal at a stable size with a skeleton loading state while data is being fetched.
 - Uses Codex page CSS variables so the modal follows the current light or dark theme where those variables are available.
 - Follows the Codex page locale from `client-bootstrap.locale` / `html[lang]` using official-style locale IDs. Included UI copy: `zh-CN`, `zh-TW`, `zh-HK`, `en-US`, `ja-JP`, `fr-FR`, `ru-RU`, `es-ES`, and `de-DE`, with English fallback.
 - Reads the same private `wham` analytics endpoints used by the page.
-- Shows current-cycle credits, total tokens, input tokens, cache hit rate, estimated USD value, and daily usage rows.
+- Shows current-cycle credits, total tokens, input tokens, cache hit rate, estimated USD value, and daily usage rows in the page modal.
 - Saves compact local snapshots in `chrome.storage.local`.
 - Exports the latest page-level data as JSON or CSV.
 - Uses local inline Lucide-style SVG icons; no remote icon script is loaded.
@@ -32,7 +33,7 @@ codex-meter/codex-meter-extension
 
 1. Open <https://chatgpt.com/codex/cloud/settings/analytics>.
 2. Click the `Codex Meter` button beside the usage details area.
-3. Use the modal or extension popup for refresh, local snapshots, CSV, and JSON export.
+3. Use the page modal for usage details and export; use the extension popup to manage display settings and local snapshots.
 
 ## Notes
 

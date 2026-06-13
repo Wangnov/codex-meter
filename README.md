@@ -40,7 +40,7 @@
 
 # 中文
 
-`Codex Meter` 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析页面。它会在 Codex analytics 页面里的「使用详情」旁边加入入口按钮和图表控制器，并用贴近 Codex 官方界面的弹窗展示本周期 Credits、Tokens、缓存命中率、推算周额度、折算金额和每日明细。
+`Codex Meter` 是一个本地 Chrome 扩展，用来增强 ChatGPT Codex 的分析页面。它会在 Codex analytics 页面里的「使用详情」旁边加入入口按钮和图表控制器，并用贴近 Codex 官方界面的页面内弹窗展示本周期 Credits、Tokens、缓存命中率、推算周额度、折算金额和每日明细。浏览器扩展弹窗只作为管理面板，用来控制页面内按钮、图表入口、默认图表模式和本地快照。
 
 它不需要额外登录，也不会保存 ChatGPT Web token。刷新数据时，它只在当前页面内读取 ChatGPT 页面已经持有的鉴权信息，并请求同一组 Codex Web analytics 接口。
 
@@ -55,6 +55,7 @@
 
 - 在 `https://chatgpt.com/codex/cloud/settings/analytics` 的「使用详情」右侧加入 `Codex Meter` 按钮
 - 在官方「按来源」图表旁加入 `Meter` 图表视图，支持 Credits、总 Tokens、折算金额、轮数等指标
+- 浏览器扩展弹窗提供页面内按钮、图表控制和默认图表模式管理
 - Meter 图表跟随页面顶部的 7 天 / 1 个月 / 自定义范围，以及天 / 周分组方式
 - 总 Tokens 图表按未缓存输入、缓存输入、输出 Tokens 分层展示
 - 使用 Codex 页面 CSS 变量，跟随浅色 / 深色主题
@@ -86,7 +87,7 @@ codex-meter/codex-meter-extension
 
 1. 打开 <https://chatgpt.com/codex/cloud/settings/analytics>
 2. 点击「使用详情」右侧的 `Codex Meter`
-3. 在弹窗里刷新、查看明细，或导出 JSON / CSV
+3. 在页面内弹窗里刷新、查看明细，或导出 JSON / CSV；在浏览器扩展弹窗里管理显示开关和本地快照
 
 ## 隐私和限制
 
@@ -118,7 +119,7 @@ unzip -t codex-meter-extension.zip
 
 # English
 
-`Codex Meter` is a local Chrome extension for the ChatGPT Codex analytics page. It adds an entry button and chart controls beside the usage details section, plus a Codex-native-feeling modal for cycle Credits, Tokens, cache hit rate, projected weekly Credits, estimated value, and daily usage rows.
+`Codex Meter` is a local Chrome extension for the ChatGPT Codex analytics page. It adds an entry button and chart controls beside the usage details section, plus a Codex-native-feeling in-page modal for cycle Credits, Tokens, cache hit rate, projected weekly Credits, estimated value, and daily usage rows. The browser extension popup is a control panel for the in-page button, chart controls, default chart mode, and local snapshots.
 
 It does not require another login and does not store your ChatGPT Web token. When you refresh data, it reads the authentication already available on the current ChatGPT page and calls the same Codex Web analytics endpoints.
 
@@ -133,6 +134,7 @@ It does not require another login and does not store your ChatGPT Web token. Whe
 
 - Adds a `Codex Meter` button beside Usage details on `https://chatgpt.com/codex/cloud/settings/analytics`
 - Adds a `Meter` chart view beside the official source chart, with Credits, total Tokens, estimated USD value, and turns
+- Provides an extension popup for managing in-page visibility, chart controls, and default chart mode
 - Follows the page-level 7 days / 1 month / custom range and day / week grouping controls
 - Shows total Tokens as uncached input, cached input, and output token layers
 - Uses Codex page CSS variables and follows light / dark theme where available
@@ -164,7 +166,7 @@ codex-meter/codex-meter-extension
 
 1. Open <https://chatgpt.com/codex/cloud/settings/analytics>
 2. Click `Codex Meter` beside Usage details
-3. Refresh, review daily rows, or export JSON / CSV from the modal
+3. Refresh, review daily rows, or export JSON / CSV from the in-page modal; use the extension popup to manage display settings and local snapshots
 
 ## Privacy and Limits
 

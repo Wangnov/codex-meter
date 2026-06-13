@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const { CONFIG, ROUTES } = window.CodexMeterConfig;
+  const { CONFIG, DEFAULT_SETTINGS, ROUTES } = window.CodexMeterConfig;
   const domain = window.CodexMeterDomain;
   const reportRepository = window.CodexMeterReportRepository;
 
@@ -9,271 +9,125 @@
   const icon = (name, className = "cqc-icon", label = "") =>
     window.CQCIcons?.icon(name, className, label) || "";
 
-  const POPUP_MESSAGES = {
+  const MESSAGES = {
     "zh-CN": {
-      subtitle: "Codex 用量快照和本地历史",
-      historyTitle: "历史快照",
-      status: {
-        loading: "读取本地快照...",
-        noSnapshot: "还没有本地快照。打开 Codex analytics 页面后点击“刷新”。",
-        updated: "本地快照已更新：{time}",
-        openFirst: "请先切到 ChatGPT Codex analytics 标签页。",
-        reading: "正在从当前 Codex 页面读取用量数据...",
-        noResponse: "页面没有响应",
+      subtitle: "页面内功能管理",
+      sections: {
+        display: "页面显示",
+        chart: "默认图表",
+        local: "本地快照",
       },
-      metrics: {
-        credits: "本周期已用 Credits",
-        tokens: "本周期总 Tokens",
-        cache: "输入缓存命中率",
-        usd: "本周期折算金额",
+      settings: {
+        pageButton: {
+          title: "页面内按钮",
+          hint: "在使用详情旁显示 Codex Meter 入口。",
+        },
+        chartControls: {
+          title: "图表控制",
+          hint: "在官方图表旁显示 Meter 切换和指标菜单。",
+        },
+      },
+      chart: {
+        source: "官方",
+        meter: "Meter",
+      },
+      snapshot: {
+        latest: "最近更新",
+        count: "历史快照",
+        countValue: "{count} 条",
+      },
+      status: {
+        loading: "读取本地状态...",
+        ready: "管理设置已同步。",
+        saved: "设置已同步。",
+        noSnapshot: "还没有本地快照。",
+        updated: "最近快照：{time}",
+        openFirst: "请先切到 ChatGPT Codex analytics 标签页。",
+        reading: "正在读取当前页面数据...",
+        noResponse: "页面没有响应",
+        cleared: "本地快照已清空。",
       },
       actions: {
         open: "打开页面",
+        panel: "打开面板",
         refresh: "刷新",
-        clear: "清空",
+        exportJson: "导出 JSON",
+        clear: "清空历史",
       },
-      emptySnapshots: "暂无历史快照",
-    },
-    "zh-TW": {
-      subtitle: "Codex 用量快照與本機歷史",
-      historyTitle: "歷史快照",
-      status: {
-        loading: "讀取本機快照...",
-        noSnapshot: "尚無本機快照。開啟 Codex analytics 頁面後按一下「重新整理」。",
-        updated: "本機快照已更新：{time}",
-        openFirst: "請先切到 ChatGPT Codex analytics 分頁。",
-        reading: "正在從目前的 Codex 頁面讀取用量資料...",
-        noResponse: "頁面沒有回應",
-      },
-      metrics: {
-        credits: "本週期已用 Credits",
-        tokens: "本週期總 Tokens",
-        cache: "輸入快取命中率",
-        usd: "本週期折算金額",
-      },
-      actions: {
-        open: "開啟頁面",
-        refresh: "重新整理",
-        clear: "清空",
-      },
-      emptySnapshots: "尚無歷史快照",
-    },
-    "zh-HK": {
-      subtitle: "Codex 用量快照及本機歷史",
-      historyTitle: "歷史快照",
-      status: {
-        loading: "讀取本機快照...",
-        noSnapshot: "暫時未有本機快照。開啟 Codex analytics 頁面後按「重新整理」。",
-        updated: "本機快照已更新：{time}",
-        openFirst: "請先切到 ChatGPT Codex analytics 分頁。",
-        reading: "正在從目前的 Codex 頁面讀取用量資料...",
-        noResponse: "頁面沒有回應",
-      },
-      metrics: {
-        credits: "本週期已用 Credits",
-        tokens: "本週期總 Tokens",
-        cache: "輸入快取命中率",
-        usd: "本週期折算金額",
-      },
-      actions: {
-        open: "開啟頁面",
-        refresh: "重新整理",
-        clear: "清空",
-      },
-      emptySnapshots: "暫無歷史快照",
+      confirmClear: "清空所有本地快照？",
     },
     "en-US": {
-      subtitle: "Codex usage snapshots and local history",
-      historyTitle: "Snapshot history",
+      subtitle: "In-page feature controls",
+      sections: {
+        display: "Page Display",
+        chart: "Default Chart",
+        local: "Local Snapshots",
+      },
+      settings: {
+        pageButton: {
+          title: "In-page button",
+          hint: "Show the Codex Meter entry beside usage details.",
+        },
+        chartControls: {
+          title: "Chart controls",
+          hint: "Show the Meter switch and metric menu beside the official chart.",
+        },
+      },
+      chart: {
+        source: "Official",
+        meter: "Meter",
+      },
+      snapshot: {
+        latest: "Last updated",
+        count: "Snapshot history",
+        countValue: "{count} saved",
+      },
       status: {
-        loading: "Reading local snapshot...",
-        noSnapshot: "No local snapshot yet. Open the Codex analytics page, then click Refresh.",
-        updated: "Local snapshot updated: {time}",
+        loading: "Reading local state...",
+        ready: "Controls synced.",
+        saved: "Settings synced.",
+        noSnapshot: "No local snapshot yet.",
+        updated: "Latest snapshot: {time}",
         openFirst: "Switch to the ChatGPT Codex analytics tab first.",
-        reading: "Reading usage data from the current Codex page...",
+        reading: "Reading data from the current page...",
         noResponse: "The page did not respond",
-      },
-      metrics: {
-        credits: "Credits used this cycle",
-        tokens: "Total Tokens this cycle",
-        cache: "Input cache hit rate",
-        usd: "Estimated cycle value",
+        cleared: "Local snapshots cleared.",
       },
       actions: {
-        open: "Open page",
+        open: "Open Page",
+        panel: "Open Panel",
         refresh: "Refresh",
-        clear: "Clear",
+        exportJson: "Export JSON",
+        clear: "Clear History",
       },
-      emptySnapshots: "No snapshot history",
-    },
-    "ja-JP": {
-      subtitle: "Codex 使用量スナップショットとローカル履歴",
-      historyTitle: "スナップショット履歴",
-      status: {
-        loading: "ローカルスナップショットを読み込み中...",
-        noSnapshot: "ローカルスナップショットはまだありません。Codex analytics ページを開いて「更新」をクリックしてください。",
-        updated: "ローカルスナップショット更新済み: {time}",
-        openFirst: "先に ChatGPT Codex analytics タブへ切り替えてください。",
-        reading: "現在の Codex ページから使用量データを読み込んでいます...",
-        noResponse: "ページが応答しませんでした",
-      },
-      metrics: {
-        credits: "このサイクルで使用した Credits",
-        tokens: "このサイクルの合計 Tokens",
-        cache: "入力キャッシュヒット率",
-        usd: "推定サイクル金額",
-      },
-      actions: {
-        open: "ページを開く",
-        refresh: "更新",
-        clear: "消去",
-      },
-      emptySnapshots: "スナップショット履歴はありません",
-    },
-    "fr-FR": {
-      subtitle: "Instantanés d’utilisation Codex et historique local",
-      historyTitle: "Historique des instantanés",
-      status: {
-        loading: "Lecture de l’instantané local...",
-        noSnapshot: "Aucun instantané local pour le moment. Ouvrez la page Codex analytics, puis cliquez sur Actualiser.",
-        updated: "Instantané local mis à jour : {time}",
-        openFirst: "Passez d’abord à l’onglet ChatGPT Codex analytics.",
-        reading: "Lecture des données d’utilisation depuis la page Codex actuelle...",
-        noResponse: "La page n’a pas répondu",
-      },
-      metrics: {
-        credits: "Credits utilisés ce cycle",
-        tokens: "Total des Tokens ce cycle",
-        cache: "Taux de cache des entrées",
-        usd: "Valeur estimée du cycle",
-      },
-      actions: {
-        open: "Ouvrir la page",
-        refresh: "Actualiser",
-        clear: "Effacer",
-      },
-      emptySnapshots: "Aucun historique d’instantanés",
-    },
-    "ru-RU": {
-      subtitle: "Снимки использования Codex и локальная история",
-      historyTitle: "История снимков",
-      status: {
-        loading: "Чтение локального снимка...",
-        noSnapshot: "Локальных снимков пока нет. Откройте страницу Codex analytics и нажмите «Обновить».",
-        updated: "Локальный снимок обновлён: {time}",
-        openFirst: "Сначала переключитесь на вкладку ChatGPT Codex analytics.",
-        reading: "Чтение данных использования с текущей страницы Codex...",
-        noResponse: "Страница не ответила",
-      },
-      metrics: {
-        credits: "Credits использовано в этом цикле",
-        tokens: "Всего Tokens в этом цикле",
-        cache: "Доля попаданий кэша ввода",
-        usd: "Оценочная стоимость цикла",
-      },
-      actions: {
-        open: "Открыть страницу",
-        refresh: "Обновить",
-        clear: "Очистить",
-      },
-      emptySnapshots: "Истории снимков пока нет",
-    },
-    "es-ES": {
-      subtitle: "Instantáneas de uso de Codex e historial local",
-      historyTitle: "Historial de instantáneas",
-      status: {
-        loading: "Leyendo instantánea local...",
-        noSnapshot: "Aún no hay instantáneas locales. Abre la página Codex analytics y haz clic en Actualizar.",
-        updated: "Instantánea local actualizada: {time}",
-        openFirst: "Cambia primero a la pestaña ChatGPT Codex analytics.",
-        reading: "Leyendo datos de uso desde la página actual de Codex...",
-        noResponse: "La página no respondió",
-      },
-      metrics: {
-        credits: "Credits usados en este ciclo",
-        tokens: "Tokens totales en este ciclo",
-        cache: "Tasa de aciertos de caché de entrada",
-        usd: "Valor estimado del ciclo",
-      },
-      actions: {
-        open: "Abrir página",
-        refresh: "Actualizar",
-        clear: "Borrar",
-      },
-      emptySnapshots: "No hay historial de instantáneas",
-    },
-    "de-DE": {
-      subtitle: "Codex-Nutzungssnapshots und lokaler Verlauf",
-      historyTitle: "Snapshot-Verlauf",
-      status: {
-        loading: "Lokaler Snapshot wird gelesen...",
-        noSnapshot: "Noch kein lokaler Snapshot. Öffne die Codex analytics-Seite und klicke auf Aktualisieren.",
-        updated: "Lokaler Snapshot aktualisiert: {time}",
-        openFirst: "Wechsle zuerst zum ChatGPT Codex analytics-Tab.",
-        reading: "Nutzungsdaten werden von der aktuellen Codex-Seite gelesen...",
-        noResponse: "Die Seite hat nicht geantwortet",
-      },
-      metrics: {
-        credits: "In diesem Zyklus genutzte Credits",
-        tokens: "Gesamte Tokens in diesem Zyklus",
-        cache: "Cache-Trefferquote für Eingaben",
-        usd: "Geschätzter Zykluswert",
-      },
-      actions: {
-        open: "Seite öffnen",
-        refresh: "Aktualisieren",
-        clear: "Leeren",
-      },
-      emptySnapshots: "Kein Snapshot-Verlauf",
+      confirmClear: "Clear all local snapshots?",
     },
   };
 
   const LOCALE_ALIASES = {
-    de: "de-DE",
     en: "en-US",
-    es: "es-ES",
-    "es-419": "es-ES",
-    fr: "fr-FR",
-    ja: "ja-JP",
-    ru: "ru-RU",
     zh: "zh-CN",
     "zh-cn": "zh-CN",
     "zh-hans": "zh-CN",
     "zh-hans-cn": "zh-CN",
-    "zh-hk": "zh-HK",
-    "zh-hant": "zh-TW",
-    "zh-hant-hk": "zh-HK",
-    "zh-hant-tw": "zh-TW",
-    "zh-tw": "zh-TW",
   };
 
   const normalizeLocale = (locale) => {
     const normalized = String(locale || "").trim().replaceAll("_", "-").toLowerCase();
-    if (POPUP_MESSAGES[LOCALE_ALIASES[normalized]]) return LOCALE_ALIASES[normalized];
-    const parts = normalized.split("-");
-    for (let size = parts.length; size >= 1; size -= 1) {
-      const candidate = parts.slice(0, size).join("-");
-      if (POPUP_MESSAGES[LOCALE_ALIASES[candidate]]) return LOCALE_ALIASES[candidate];
-    }
-    return "en-US";
+    if (MESSAGES[LOCALE_ALIASES[normalized]]) return LOCALE_ALIASES[normalized];
+    const language = normalized.split("-")[0];
+    return MESSAGES[LOCALE_ALIASES[language]] ? LOCALE_ALIASES[language] : "en-US";
   };
 
   const locale = normalizeLocale(navigator.languages?.[0] || navigator.language);
 
   const messageValue = (key) =>
-    key.split(".").reduce((value, part) => value?.[part], POPUP_MESSAGES[locale]) ??
-    key.split(".").reduce((value, part) => value?.[part], POPUP_MESSAGES["en-US"]) ??
+    key.split(".").reduce((value, part) => value?.[part], MESSAGES[locale]) ??
+    key.split(".").reduce((value, part) => value?.[part], MESSAGES["en-US"]) ??
     key;
 
   const t = (key, vars = {}) =>
     String(messageValue(key)).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
-
-  const fmtNum = (value, digits = 2) => {
-    return domain.formatNumber(value, locale, digits);
-  };
-
-  const n = domain.n;
-  const fmtUsd = (credits) => domain.formatUsd(credits, CONFIG.USD_PER_CREDIT);
 
   const escapeHtml = (value) =>
     String(value ?? "")
@@ -283,59 +137,76 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
 
-  const setStatus = (message, isError = false) => {
+  const isValidChartMode = (mode) => mode === "source" || mode === "meter";
+
+  const normalizeSettings = (settings = {}) => ({
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    defaultChartMode: isValidChartMode(settings.defaultChartMode)
+      ? settings.defaultChartMode
+      : DEFAULT_SETTINGS.defaultChartMode,
+  });
+
+  const setStatus = (message, kind = "info") => {
     const el = $("#status");
-    el.innerHTML = `${icon(isError ? "alert" : "check")}<span>${escapeHtml(message)}</span>`;
-    el.classList.toggle("error", isError);
+    el.innerHTML = `${icon(kind === "error" ? "alert" : kind === "loading" ? "loader" : "check")}<span>${escapeHtml(message)}</span>`;
+    el.dataset.kind = kind;
+  };
+
+  const loadSettings = async () => {
+    const data = await chrome.storage.local.get(CONFIG.STORAGE_SETTINGS);
+    return normalizeSettings(data[CONFIG.STORAGE_SETTINGS]);
+  };
+
+  const saveSettings = async (patch) => {
+    const current = await loadSettings();
+    const next = normalizeSettings({ ...current, ...patch });
+    await chrome.storage.local.set({ [CONFIG.STORAGE_SETTINGS]: next });
+    renderSettings(next);
+    setStatus(t("status.saved"));
   };
 
   const loadState = async () => {
-    const data = await reportRepository.load();
-    render(data.latest, data.snapshots);
+    setStatus(t("status.loading"), "loading");
+    const [settings, data] = await Promise.all([loadSettings(), reportRepository.load()]);
+    renderSettings(settings);
+    renderSnapshots(data.latest, data.snapshots);
+    setStatus(data.latest ? t("status.updated", { time: data.latest.capturedAtLocal || data.latest.capturedAt }) : t("status.noSnapshot"));
   };
 
-  const render = (latest, snapshots) => {
-    if (!latest) {
-      setStatus(t("status.noSnapshot"));
-      $("#credits").textContent = "--";
-      $("#tokens").textContent = "--";
-      $("#cacheRatio").textContent = "--";
-      $("#usdEstimate").textContent = "--";
-      $("#snapshots").innerHTML = `<div class="empty">${icon("database")}<span>${escapeHtml(t("emptySnapshots"))}</span></div>`;
-      return;
-    }
-
-    const stats = latest.currentStats || {};
-    setStatus(t("status.updated", { time: latest.capturedAtLocal || latest.capturedAt }));
-    $("#credits").textContent = n(stats.credits).toFixed(2);
-    $("#tokens").textContent = fmtNum(stats.tokens);
-    $("#cacheRatio").textContent = `${(n(stats.cacheRatio) * 100).toFixed(1)}%`;
-    $("#usdEstimate").textContent = fmtUsd(stats.credits);
-    $("#snapshots").innerHTML = renderSnapshots(snapshots);
+  const renderSettings = (settings) => {
+    $("#showPageButton").checked = Boolean(settings.showPageButton);
+    $("#showChartControls").checked = Boolean(settings.showChartControls);
+    document.querySelectorAll("[data-chart-mode]").forEach((button) => {
+      const active = button.dataset.chartMode === settings.defaultChartMode;
+      button.dataset.active = active ? "true" : "false";
+      button.setAttribute("aria-selected", active ? "true" : "false");
+      button.tabIndex = active ? 0 : -1;
+    });
   };
 
-  const renderSnapshots = (snapshots) => {
-    if (!snapshots.length) return `<div class="empty">${icon("database")}<span>${escapeHtml(t("emptySnapshots"))}</span></div>`;
-    return snapshots
-      .slice(0, 5)
-      .map((shot) => `
-        <article class="snapshot">
-          <strong>${icon("clock")}${escapeHtml(shot.capturedAtLocal || shot.capturedAt)}</strong>
-          <span>${n(shot.currentStats?.credits).toFixed(2)} Credits · ${fmtNum(shot.currentStats?.tokens)} Tokens</span>
-        </article>
-      `)
-      .join("");
+  const renderSnapshots = (latest, snapshots) => {
+    $("#latestSnapshot").textContent = latest?.capturedAtLocal || latest?.capturedAt || "--";
+    $("#snapshotCount").textContent = t("snapshot.countValue", {
+      count: Array.isArray(snapshots) ? snapshots.length : 0,
+    });
   };
 
-  const decorateStaticIcons = () => {
+  const decorateStaticContent = () => {
     document.documentElement.lang = locale;
     document.querySelectorAll("[data-i18n]").forEach((element) => {
       element.textContent = t(element.dataset.i18n);
     });
-    $("#brandIcon").innerHTML = icon("gauge");
     document.querySelectorAll("[data-icon]").forEach((slot) => {
       slot.innerHTML = icon(slot.dataset.icon);
     });
+    $("#brandIcon").innerHTML = icon("gauge");
+    $("#refresh").title = t("actions.refresh");
+    $("#refresh").setAttribute("aria-label", t("actions.refresh"));
+    $("#exportJson").title = t("actions.exportJson");
+    $("#exportJson").setAttribute("aria-label", t("actions.exportJson"));
+    $("#clearHistory").title = t("actions.clear");
+    $("#clearHistory").setAttribute("aria-label", t("actions.clear"));
   };
 
   const activeTab = async () => {
@@ -343,32 +214,41 @@
     return tabs[0] || null;
   };
 
-  const refreshActive = async () => {
+  const isAnalyticsUrl = (url) => {
+    try {
+      const parsed = new URL(url);
+      return parsed.origin === ROUTES.analyticsOrigin && parsed.pathname === ROUTES.analyticsPath;
+    } catch {
+      return false;
+    }
+  };
+
+  const runActiveAnalysis = async ({ openPanel = false } = {}) => {
     const tab = await activeTab();
-    if (!tab?.id || !tab.url?.startsWith("https://chatgpt.com/")) {
-      setStatus(t("status.openFirst"), true);
+    if (!tab?.id || !isAnalyticsUrl(tab.url)) {
+      setStatus(t("status.openFirst"), "error");
       return;
     }
 
-    setStatus(t("status.reading"));
+    setStatus(t("status.reading"), "loading");
     try {
-      let response = await sendRefreshMessage(tab.id);
+      let response = await sendRefreshMessage(tab.id, openPanel);
       if (!response?.ok && /Receiving end does not exist|Could not establish connection/i.test(response?.error || "")) {
         await injectIntoTab(tab.id);
-        response = await sendRefreshMessage(tab.id);
+        response = await sendRefreshMessage(tab.id, openPanel);
       }
       if (!response?.ok) throw new Error(response?.error || t("status.noResponse"));
       await loadState();
     } catch (error) {
-      setStatus(error.message || String(error), true);
+      setStatus(error.message || String(error), "error");
     }
   };
 
-  const sendRefreshMessage = async (tabId) => {
+  const sendRefreshMessage = async (tabId, openPanel) => {
     try {
       return await chrome.tabs.sendMessage(tabId, {
         type: "CQC_RUN_ANALYSIS",
-        openPanel: true,
+        openPanel,
       });
     } catch (error) {
       return { ok: false, error: error.message || String(error) };
@@ -411,8 +291,10 @@
   };
 
   const clearHistory = async () => {
+    if (!window.confirm(t("confirmClear"))) return;
     await reportRepository.clear();
-    await loadState();
+    renderSnapshots(null, []);
+    setStatus(t("status.cleared"));
   };
 
   const downloadText = (filename, text, type) => {
@@ -427,11 +309,34 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  $("#showPageButton").addEventListener("change", (event) => {
+    saveSettings({ showPageButton: event.target.checked }).catch((error) => {
+      setStatus(error.message || String(error), "error");
+    });
+  });
+
+  $("#showChartControls").addEventListener("change", (event) => {
+    saveSettings({ showChartControls: event.target.checked }).catch((error) => {
+      setStatus(error.message || String(error), "error");
+    });
+  });
+
+  document.querySelectorAll("[data-chart-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      saveSettings({ defaultChartMode: button.dataset.chartMode }).catch((error) => {
+        setStatus(error.message || String(error), "error");
+      });
+    });
+  });
+
   $("#openAnalytics").addEventListener("click", openAnalytics);
-  $("#refresh").addEventListener("click", refreshActive);
+  $("#openPanel").addEventListener("click", () => runActiveAnalysis({ openPanel: true }));
+  $("#refresh").addEventListener("click", () => runActiveAnalysis({ openPanel: false }));
   $("#exportJson").addEventListener("click", exportJson);
   $("#clearHistory").addEventListener("click", clearHistory);
 
-  decorateStaticIcons();
-  loadState();
+  decorateStaticContent();
+  loadState().catch((error) => {
+    setStatus(error.message || String(error), "error");
+  });
 })();

@@ -7,46 +7,79 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main class="popup">
-      <header class="top">
-        <div id="brandIcon" class="brand-icon" aria-hidden="true"></div>
-        <div>
-          <h1>Codex Meter</h1>
-          <p data-i18n="subtitle">Codex 用量快照和本地历史</p>
+    <main class="popup" aria-labelledby="title">
+      <header class="cqc-header">
+        <div class="cqc-brand">
+          <div id="brandIcon" class="cqc-brand-mark" aria-hidden="true"></div>
+          <div>
+            <h1 class="cqc-title" id="title">Codex Meter</h1>
+            <p class="cqc-subtitle" data-i18n="subtitle">页面内功能管理</p>
+          </div>
         </div>
       </header>
 
-      <section id="status" class="status" data-i18n="status.loading">读取本地快照...</section>
+      <section id="status" class="cqc-status" data-kind="info">读取本地状态...</section>
 
-      <section class="metric-grid" aria-label="Latest summary">
-        <article class="metric">
-          <div class="metric-head"><span class="metric-icon" data-icon="coins"></span><span data-i18n="metrics.credits">本周期已用 Credits</span></div>
-          <strong id="credits">--</strong>
-        </article>
-        <article class="metric">
-          <div class="metric-head"><span class="metric-icon" data-icon="cpu"></span><span data-i18n="metrics.tokens">本周期总 Tokens</span></div>
-          <strong id="tokens">--</strong>
-        </article>
-        <article class="metric">
-          <div class="metric-head"><span class="metric-icon" data-icon="layers"></span><span data-i18n="metrics.cache">输入缓存命中率</span></div>
-          <strong id="cacheRatio">--</strong>
-        </article>
-        <article class="metric">
-          <div class="metric-head"><span class="metric-icon" data-icon="wallet"></span><span data-i18n="metrics.usd">本周期折算金额</span></div>
-          <strong id="usdEstimate">--</strong>
-        </article>
+      <section class="cqc-section">
+        <h2><span data-icon="settings"></span><span data-i18n="sections.display">页面显示</span></h2>
+        <div class="setting-list">
+          <label class="setting-card">
+            <span class="setting-copy">
+              <span class="setting-title" data-i18n="settings.pageButton.title">页面内按钮</span>
+              <span class="setting-hint" data-i18n="settings.pageButton.hint">在使用详情旁显示 Codex Meter 入口。</span>
+            </span>
+            <input id="showPageButton" type="checkbox" />
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+          <label class="setting-card">
+            <span class="setting-copy">
+              <span class="setting-title" data-i18n="settings.chartControls.title">图表控制</span>
+              <span class="setting-hint" data-i18n="settings.chartControls.hint">在官方图表旁显示 Meter 切换和指标菜单。</span>
+            </span>
+            <input id="showChartControls" type="checkbox" />
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+        </div>
       </section>
 
-      <section>
-        <h2><span class="metric-icon" data-icon="database"></span><span data-i18n="historyTitle">历史快照</span></h2>
-        <div id="snapshots" class="snapshots"></div>
+      <section class="cqc-section">
+        <h2><span data-icon="barChart"></span><span data-i18n="sections.chart">默认图表</span></h2>
+        <div class="segmented" role="tablist" aria-label="Default chart mode">
+          <button type="button" role="tab" data-chart-mode="source" data-i18n="chart.source">官方</button>
+          <button type="button" role="tab" data-chart-mode="meter">Meter</button>
+        </div>
       </section>
 
-      <footer class="actions">
-        <button id="openAnalytics" type="button"><span data-icon="external"></span><span data-i18n="actions.open">打开页面</span></button>
-        <button id="refresh" type="button" class="primary"><span data-icon="refresh"></span><span data-i18n="actions.refresh">刷新</span></button>
-        <button id="exportJson" type="button"><span data-icon="fileJson"></span>JSON</button>
-        <button id="clearHistory" type="button"><span data-icon="trash"></span><span data-i18n="actions.clear">清空</span></button>
+      <section class="cqc-section">
+        <h2><span data-icon="database"></span><span data-i18n="sections.local">本地快照</span></h2>
+        <div class="info-list">
+          <article class="info-card">
+            <span data-i18n="snapshot.latest">最近更新</span>
+            <strong id="latestSnapshot">--</strong>
+          </article>
+          <article class="info-card">
+            <span data-i18n="snapshot.count">历史快照</span>
+            <strong id="snapshotCount">--</strong>
+          </article>
+        </div>
+      </section>
+
+      <footer class="cqc-footer">
+        <button id="openAnalytics" class="cqc-text-button" type="button">
+          <span data-icon="external"></span><span data-i18n="actions.open">打开页面</span>
+        </button>
+        <button id="openPanel" class="cqc-text-button cqc-primary" type="button">
+          <span data-icon="gauge"></span><span data-i18n="actions.panel">打开面板</span>
+        </button>
+        <button id="refresh" class="cqc-icon-button" type="button" title="刷新" aria-label="刷新">
+          <span data-icon="refresh"></span>
+        </button>
+        <button id="exportJson" class="cqc-icon-button" type="button" title="导出 JSON" aria-label="导出 JSON">
+          <span data-icon="fileJson"></span>
+        </button>
+        <button id="clearHistory" class="cqc-icon-button" type="button" title="清空历史" aria-label="清空历史">
+          <span data-icon="trash"></span>
+        </button>
       </footer>
     </main>
     <script src="icons.js"></script>
