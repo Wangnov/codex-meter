@@ -113,6 +113,13 @@ rm -f codex-meter-extension.zip
 unzip -t codex-meter-extension.zip
 ```
 
+发布到 Chrome Web Store 的 GitHub Actions 工作流会在两种情况下运行：
+
+- 手动触发 `Publish Chrome Web Store`
+- 发布非 prerelease 的 `v*` GitHub Release
+
+自动发布会校验 release tag 是否匹配 `manifest.json` 版本号，并在上传前检查商店中没有待审核版本。
+
 ---
 
 <a id="readme-en"></a>
@@ -191,3 +198,10 @@ rm -f codex-meter-extension.zip
 (cd codex-meter-extension && zip -r ../codex-meter-extension.zip .)
 unzip -t codex-meter-extension.zip
 ```
+
+The Chrome Web Store GitHub Actions workflow runs in two cases:
+
+- Manual `Publish Chrome Web Store` dispatch
+- Published non-prerelease `v*` GitHub Releases
+
+The release-triggered publish checks that the release tag matches the `manifest.json` version and that there is no pending Chrome Web Store submission before uploading.
