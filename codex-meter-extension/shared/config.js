@@ -7,6 +7,13 @@
     MAX_SNAPSHOTS: 180,
     STORAGE_LATEST: "codexQuotaCompassLatest",
     STORAGE_SNAPSHOTS: "codexQuotaCompassSnapshots",
+    STORAGE_SETTINGS: "codexMeterSettings",
+  };
+
+  const DEFAULT_SETTINGS = {
+    showPageButton: true,
+    showChartControls: true,
+    defaultChartMode: "source",
   };
 
   const IDS = {
@@ -27,6 +34,7 @@
 
   window.CodexMeterConfig = {
     CONFIG,
+    DEFAULT_SETTINGS,
     IDS,
     ROUTES,
     isAnalyticsRoute,
