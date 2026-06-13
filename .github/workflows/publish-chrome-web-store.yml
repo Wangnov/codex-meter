@@ -2,6 +2,8 @@ name: Publish Chrome Web Store
 
 on:
   workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -9,21 +11,34 @@ permissions:
 jobs:
   publish:
     name: Upload and publish extension
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v')) }}
     runs-on: ubuntu-latest
+    environment:
+      name: chrome-web-store
+      url: https://chromewebstore.google.com/detail/kpojojfbblmmfpkifihdgkbocibbnopi
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
       - name: Check JavaScript syntax
         run: find codex-meter-extension -maxdepth 3 -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Check manifest and capture version
         id: manifest
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           node - <<'NODE'
           const fs = require("fs");
           const manifest = JSON.parse(fs.readFileSync("codex-meter-extension/manifest.json", "utf8"));
           if (!manifest.version) throw new Error("manifest.version is required");
+          const releaseTag = process.env.RELEASE_TAG || "";
+          const expectedTag = `v${manifest.version}`;
+          if (releaseTag && releaseTag !== expectedTag) {
+            throw new Error(`Release tag ${releaseTag} does not match manifest version ${expectedTag}.`);
+          }
           console.log(`version=${manifest.version}`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${manifest.version}\n`);
           NODE
@@ -41,6 +56,42 @@ jobs:
           credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Check Chrome Web Store status
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          MANIFEST_VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          curl --fail-with-body -sS \
+            -H "Authorization: Bearer ${TOKEN}" \
+            "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:fetchStatus" \
+            > chrome-web-store-status.json
+
+          node - <<'NODE'
+          const fs = require("fs");
+          const status = JSON.parse(fs.readFileSync("chrome-web-store-status.json", "utf8"));
+          const channel = (revision) => revision?.distributionChannels?.[0] || {};
+          const published = status.publishedItemRevisionStatus;
+          const submitted = status.submittedItemRevisionStatus;
+          const publishedVersion = channel(published).crxVersion || "";
+          const submittedVersion = channel(submitted).crxVersion || "";
+          const manifestVersion = process.env.MANIFEST_VERSION;
+
+          if (submitted?.state) {
+            throw new Error(
+              `Chrome Web Store already has submitted version ${submittedVersion || "unknown"} in state ${submitted.state}.`,
+            );
+          }
+
+          if (publishedVersion === manifestVersion) {
+            throw new Error(`Chrome Web Store already published version ${manifestVersion}.`);
+          }
+
+          console.log(`Published version: ${publishedVersion || "none"}`);
+          console.log(`Submitting version: ${manifestVersion}`);
+          NODE
 
       - name: Upload package to Chrome Web Store
         env:
