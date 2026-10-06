@@ -24,13 +24,27 @@
 
   const ROUTES = {
     analyticsOrigin: "https://chatgpt.com",
-    analyticsPath: "/codex/cloud/settings/analytics",
-    analyticsUrl: "https://chatgpt.com/codex/cloud/settings/analytics",
+    analyticsPath: "/settings/usage",
+    analyticsTab: "analytics",
+    analyticsUrl: "https://chatgpt.com/settings/usage?tab=analytics",
   };
 
-  const isAnalyticsRoute = (currentLocation = window.location) =>
-    currentLocation.origin === ROUTES.analyticsOrigin &&
-    currentLocation.pathname === ROUTES.analyticsPath;
+  const isAnalyticsRoute = (currentLocation = window.location) => {
+    let url;
+    try {
+      url = currentLocation instanceof URL
+        ? currentLocation
+        : new URL(currentLocation.href);
+    } catch {
+      return false;
+    }
+
+    return (
+      url.origin === ROUTES.analyticsOrigin &&
+      url.pathname === ROUTES.analyticsPath &&
+      url.searchParams.get("tab") === ROUTES.analyticsTab
+    );
+  };
 
   window.CodexMeterConfig = {
     CONFIG,

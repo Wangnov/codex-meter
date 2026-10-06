@@ -1,24 +1,25 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.4.20";
+  const CONTENT_SCRIPT_VERSION = "0.6.0";
   const ENABLE_CHART_TOOLTIP_ENHANCER = false;
   const CHART_IDS = {
     controls: "codex-meter-chart-controls",
     switcher: "codex-meter-chart-switcher",
     metric: "codex-meter-chart-metric",
+    grouping: "codex-meter-chart-grouping",
     view: "codex-meter-chart-view",
   };
   const CHART_MODE_STORAGE_KEY = "codexMeterUsageChartMode";
   const CHART_METRIC_STORAGE_KEY = "codexMeterUsageChartMetric";
+  const CHART_GROUPING_STORAGE_KEY = "codexMeterUsageChartGroupings";
   const CHART_MODES = {
     source: "source",
     meter: "meter",
   };
   const CHART_RANGES = {
     sevenDays: "7d",
-    month: "month",
-    custom: "custom",
+    month: "30d",
   };
   const CHART_GROUPINGS = {
     day: "day",
@@ -30,6 +31,12 @@
     usd: "usd",
     turns: "turns",
   };
+  const SERIES_GROUPINGS = {
+    models: "models",
+    clients: "clients",
+    tokens: "tokens",
+    total: "total",
+  };
 
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
@@ -40,12 +47,15 @@
   const { CONFIG, DEFAULT_SETTINGS, IDS, isAnalyticsRoute } = window.CodexMeterConfig;
   const domain = window.CodexMeterDomain;
   const chatGptClient = window.CodexMeterChatGptClient;
+  const usagePage = window.CodexMeterUsagePage;
   const reportRepository = window.CodexMeterReportRepository;
   const { cacheRatio, compactReport, n, tokenInput, tokenTotal } = domain;
 
   let latestReport = null;
   let isRunning = false;
   let passiveReportPromise = null;
+  let passiveReportError = null;
+  let failedPassiveScopeKey = null;
   let cacheHydrationPromise = null;
   let chartTooltipFrame = 0;
   let chartPointer = null;
@@ -53,8 +63,23 @@
   let usageChartResizeFrame = 0;
   let usageChartMode = CHART_MODES.source;
   let meterChartMetric = CHART_METRICS.credits;
+  let meterChartGroupings = {
+    [CHART_METRICS.credits]: SERIES_GROUPINGS.clients,
+    [CHART_METRICS.tokens]: SERIES_GROUPINGS.tokens,
+    [CHART_METRICS.usd]: SERIES_GROUPINGS.clients,
+    [CHART_METRICS.turns]: SERIES_GROUPINGS.models,
+  };
   let meterSettings = { ...DEFAULT_SETTINGS };
   let renderedMeterChartRows = [];
+  let renderedMeterChartLegend = [];
+  let renderedMeterChartScopeKey = "";
+  let meterChartPinnedIndex = null;
+  let meterChartHoverIndex = null;
+  let meterChartFocusIndex = 0;
+  let meterChartGeometryFrame = 0;
+  let meterChartModeAnimation = null;
+  const meterChartHiddenSeries = new Map();
+  const meterChartTextAnimations = new WeakMap();
   let lastPassiveRefreshAt = 0;
   const PASSIVE_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -85,6 +110,13 @@
   } catch {
     meterChartMetric = CHART_METRICS.credits;
   }
+
+  try {
+    const storedGroupings = JSON.parse(window.localStorage?.getItem(CHART_GROUPING_STORAGE_KEY) || "{}");
+    if (storedGroupings && typeof storedGroupings === "object" && !Array.isArray(storedGroupings)) {
+      meterChartGroupings = { ...meterChartGroupings, ...storedGroupings };
+    }
+  } catch {}
 
   const applyMeterSettings = (settings, { syncChartMode = true } = {}) => {
     meterSettings = normalizeSettings(settings);
@@ -136,11 +168,39 @@
       updated: "数据已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
       chart: {
-        source: "按来源",
+        source: "官方",
+        pendingDay: "此日暂无用量明细。",
         meter: "Meter",
         metric: "指标",
+        grouping: "分组",
         loading: "正在读取 Meter 图表数据...",
         empty: "暂无可绘制的用量数据。",
+        allDates: "全部日期",
+        overview: "整个时间段",
+        dataMismatch: "部分分项高于官方总量，图中保留原始明细。",
+        modelCreditsUnavailable: "当前区间无模型额度明细",
+        groupings: {
+          models: "按模型",
+          clients: "按使用端",
+          tokens: "按 Token 类型",
+          total: "只看总量",
+        },
+        other: "其他",
+        clients: {
+          CODEX_WORK_WEB: "Work 网页",
+          CODEX_WORK_DESKTOP: "Work 桌面端",
+          CODEX_CLI: "CLI",
+          CODEX_DESKTOP_APP: "Codex 桌面端",
+          CODEX_SERVICE_EXEC: "服务执行",
+          CODEX_UNKNOWN_DEFAULT: "其他使用端",
+        },
+        aria: {
+          slider: "用量图表日期选择",
+          overview: "整个时间段汇总",
+          day: "{date}，总计 {total}",
+          hideSeries: "隐藏 {label}",
+          showSeries: "显示 {label}",
+        },
         series: {
           uncachedInput: "未缓存输入",
           cachedInput: "缓存输入",
@@ -202,7 +262,7 @@
       updated: "資料已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
       chart: {
-        source: "按來源",
+        source: "官方",
         meter: "Meter",
         metric: "指標",
         loading: "正在讀取 Meter 圖表資料...",
@@ -268,7 +328,7 @@
       updated: "資料已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
       chart: {
-        source: "按來源",
+        source: "官方",
         meter: "Meter",
         metric: "指標",
         loading: "正在讀取 Meter 圖表資料...",
@@ -334,11 +394,39 @@
       updated: "Data updated: {time}",
       tooltipPending: "Codex Meter · updating",
       chart: {
-        source: "By source",
+        source: "Official",
         meter: "Meter",
         metric: "Metric",
+        grouping: "Group",
         loading: "Reading Meter chart data...",
         empty: "No usage data to chart yet.",
+        pendingDay: "No usage details are available for this day.",
+        allDates: "All dates",
+        overview: "Entire date range",
+        dataMismatch: "Some breakdown values exceed the reported total; raw details are preserved.",
+        modelCreditsUnavailable: "No per-model credit details in this date range",
+        groupings: {
+          models: "By model",
+          clients: "By client",
+          tokens: "By Token type",
+          total: "Total only",
+        },
+        other: "Other",
+        clients: {
+          CODEX_WORK_WEB: "Work web",
+          CODEX_WORK_DESKTOP: "Work desktop",
+          CODEX_CLI: "CLI",
+          CODEX_DESKTOP_APP: "Codex desktop",
+          CODEX_SERVICE_EXEC: "Service execution",
+          CODEX_UNKNOWN_DEFAULT: "Other client",
+        },
+        aria: {
+          slider: "Usage chart date selection",
+          overview: "Entire date range summary",
+          day: "{date}, total {total}",
+          hideSeries: "Hide {label}",
+          showSeries: "Show {label}",
+        },
         series: {
           uncachedInput: "Uncached input",
           cachedInput: "Cached input",
@@ -400,7 +488,7 @@
       updated: "データ更新済み: {time}",
       tooltipPending: "Codex Meter · 更新中",
       chart: {
-        source: "ソース別",
+        source: "公式",
         meter: "Meter",
         metric: "指標",
         loading: "Meter グラフデータを読み込んでいます...",
@@ -461,7 +549,7 @@
       updated: "Données mises à jour : {time}",
       tooltipPending: "Codex Meter · mise à jour",
       chart: {
-        source: "Par source",
+        source: "Officiel",
         meter: "Meter",
         metric: "Indicateur",
         loading: "Lecture des données du graphique Meter...",
@@ -530,7 +618,7 @@
       updated: "Данные обновлены: {time}",
       tooltipPending: "Codex Meter · обновление",
       chart: {
-        source: "По источнику",
+        source: "Официальный",
         meter: "Meter",
         metric: "Метрика",
         loading: "Чтение данных графика Meter...",
@@ -591,7 +679,7 @@
       updated: "Datos actualizados: {time}",
       tooltipPending: "Codex Meter · actualizando",
       chart: {
-        source: "Por origen",
+        source: "Oficial",
         meter: "Meter",
         metric: "Métrica",
         loading: "Leyendo los datos del gráfico Meter...",
@@ -652,7 +740,7 @@
       updated: "Daten aktualisiert: {time}",
       tooltipPending: "Codex Meter · wird aktualisiert",
       chart: {
-        source: "Nach Quelle",
+        source: "Offiziell",
         meter: "Meter",
         metric: "Kennzahl",
         loading: "Meter-Diagrammdaten werden gelesen...",
@@ -702,6 +790,18 @@
 
   const icon = (name, className = "cqc-icon", label = "") =>
     window.CQCIcons?.icon(name, className, label) || "";
+
+  const chartChevronIcon = () => `
+    <svg class="cqc-icon cqm-chart-chevron" viewBox="0 0 20 21" fill="none" aria-hidden="true">
+      <path d="M15.2793 7.71101C15.539 7.45131 15.961 7.45131 16.2207 7.71101C16.4804 7.97071 16.4804 8.39272 16.2207 8.65242L10.4707 14.4024C10.211 14.6621 9.78902 14.6621 9.52932 14.4024L3.77932 8.65242L3.69436 8.54792C3.52385 8.28979 3.55205 7.93828 3.77932 7.71101C4.00659 7.48374 4.3581 7.45554 4.61623 7.62605L4.72073 7.71101L10 12.9903L15.2793 7.71101Z" fill="currentColor" stroke="currentColor" stroke-width=".6" />
+    </svg>
+  `;
+
+  const chartCheckIcon = () => `
+    <svg class="cqc-icon cqm-chart-check" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M11.5624 4.0338C11.7255 3.79403 12.0522 3.73111 12.2919 3.89415C12.5314 4.05717 12.5933 4.38398 12.4306 4.62364L7.539 11.818C7.30083 12.1681 6.80219 12.215 6.50286 11.9156L3.62786 9.03478C3.4231 8.82953 3.42363 8.4964 3.62884 8.29161C3.8341 8.08683 4.16722 8.08733 4.372 8.29259L6.92474 10.8512L11.5624 4.0338Z" />
+    </svg>
+  `;
 
   const OFFICIAL_LOCALE_IDS = [
     "am", "ar", "bg-BG", "bn-BD", "bs-BA", "ca-ES", "cs-CZ", "da-DK",
@@ -810,6 +910,7 @@
     config: CONFIG,
     domain,
     getPageLocale,
+    getDateRange: () => usagePage.readDateRange(getPageLocale()),
     pageHref: () => location.href,
     reportRepository,
     translate: t,
@@ -950,79 +1051,16 @@
     );
   };
 
-  const hasProductUsageLegend = (element) => {
-    const text = elementText(element);
-    return /\bDesktop App\b/.test(text) && /\b(CLI|Cloud|Exec|Other)\b/.test(text);
-  };
-
-  const findProductUsageSection = () =>
-    visibleMainSections()
-      .filter(hasProductUsageLegend)
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return ar.top - br.top || ar.height - br.height;
-      })[0] || null;
-
-  const findProductLegendElement = (section) =>
-    [...section.querySelectorAll("div,ul,ol,nav")]
-      .filter(isRenderableElement)
-      .filter((element) => element !== section && hasProductUsageLegend(element))
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return ar.width * ar.height - br.width * br.height;
-      })[0] || null;
+  const findProductUsageSection = () => usagePage.findMount()?.section || null;
 
   const findProductChartHeading = (section) => {
-    if (!section) return null;
-    const headings = [...section.querySelectorAll("h2,h3,[role='heading']")]
-      .filter(isRenderableElement)
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    const knownPersonalLabels = knownText("personalUsage");
-    return (
-      headings.find((heading) => knownPersonalLabels.includes(elementText(heading))) ||
-      headings.findLast?.((heading) => heading.matches("h3,[role='heading']")) ||
-      headings.filter((heading) => heading.matches("h3,[role='heading']")).at(-1) ||
-      headings.at(-1) ||
-      null
-    );
+    const mount = usagePage.findMount();
+    return mount?.section === section ? mount.heading : null;
   };
 
-  const findProductChartFrame = (section, heading) => {
-    if (!section) return null;
-    const sectionRect = section.getBoundingClientRect();
-    const headingBottom = heading?.getBoundingClientRect().bottom ?? sectionRect.top;
-    const legend = findProductLegendElement(section);
-    const legendTop = legend?.getBoundingClientRect().top ?? sectionRect.bottom;
-    const candidates = [...section.querySelectorAll("div,section,article,svg,canvas")]
-      .filter(isRenderableElement)
-      .filter((element) => !element.closest(`#${IDS.overlay}, #${CHART_IDS.view}, #${CHART_IDS.controls}`))
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        const area = rect.width * rect.height;
-        return (
-          rect.top >= headingBottom + 12 &&
-          rect.top < legendTop &&
-          rect.bottom <= legendTop + 28 &&
-          rect.width >= Math.min(520, sectionRect.width * 0.55) &&
-          rect.height >= 220 &&
-          area < sectionRect.width * sectionRect.height * 0.82
-        );
-      })
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        const aKindScore = a.matches("svg.recharts-surface") ? -120 : a.matches("svg,canvas") ? -60 : 0;
-        const bKindScore = b.matches("svg.recharts-surface") ? -120 : b.matches("svg,canvas") ? -60 : 0;
-        const aScore = aKindScore + Math.abs(ar.top - (headingBottom + 32)) + Math.abs(ar.bottom - legendTop) * 0.35;
-        const bScore = bKindScore + Math.abs(br.top - (headingBottom + 32)) + Math.abs(br.bottom - legendTop) * 0.35;
-        return aScore - bScore;
-      });
-    return {
-      frame: candidates[0] || null,
-      legend,
-    };
+  const findProductChartFrame = (section) => {
+    const mount = usagePage.findMount();
+    return mount?.section === section ? { frame: mount.frame, legend: mount.legend } : null;
   };
 
   const clearProductChartMountMarks = () => {
@@ -1040,30 +1078,42 @@
     chartMount?.legend?.setAttribute("data-cqm-source-chart-legend", "true");
   };
 
-  const findUsageDetailsMount = () => {
-    const knownHeading = findKnownHeading("usageDetails");
-    if (knownHeading) return mountForHeading(knownHeading);
-
-    const productLegendSection = findProductUsageSection();
-    if (productLegendSection) {
-      return mountForHeading(sectionHeading(productLegendSection) || headingNearSection(productLegendSection));
+  const ensureMeterPeriodLabel = (mount = usagePage.findMount()) => {
+    const periodHeader = mount?.periodHeader;
+    if (!periodHeader) return null;
+    const labelHost = periodHeader.firstElementChild;
+    if (!labelHost) return null;
+    const sourceLabel = [...labelHost.children].find(
+      (child) => child.matches?.("span") && !child.matches(".cqm-meter-period-label"),
+    );
+    if (!sourceLabel) return null;
+    setAttributeIfChanged(sourceLabel, "data-cqm-source-period", "true");
+    let label = labelHost.querySelector(":scope > .cqm-meter-period-label");
+    if (!label) {
+      label = document.createElement("span");
+      label.className = "cqm-meter-period-label";
+      label.setAttribute("aria-live", "polite");
+      labelHost.insertBefore(label, sourceLabel.nextSibling);
     }
-
-    return null;
+    return label;
   };
 
-  const positionDetailButton = (button, heading, section, placement) => {
-    if (placement === "fixed") {
-      button.style.removeProperty("--cqm-detail-top");
-      return;
-    }
-    const headingRect = heading.getBoundingClientRect();
-    const sectionRect = section.getBoundingClientRect();
-    const top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 2));
-    const nextTop = `${top}px`;
-    if (button.style.getPropertyValue("--cqm-detail-top") !== nextTop) {
-      button.style.setProperty("--cqm-detail-top", nextTop);
-    }
+  const setMeterPeriodLabel = (index = meterChartPinnedIndex) => {
+    const label = ensureMeterPeriodLabel();
+    if (!label) return;
+    const scope = meterChartScope();
+    const selectedDate = index == null ? null : renderedMeterChartRows[index]?.date;
+    const text = selectedDate
+      ? formatAxisDate(selectedDate)
+      : `${formatPeriodDate(renderedMeterChartRows[0]?.date || scope.startDate)} – ${formatPeriodDate(
+          renderedMeterChartRows.at(-1)?.date || scope.endDate,
+        )}`;
+    fadeMeterText(label, text);
+  };
+
+  const findUsageDetailsMount = () => {
+    const mount = usagePage.findMount();
+    return mount ? { ...mount, placement: "inline" } : null;
   };
 
   const ensureDetailButton = () => {
@@ -1098,12 +1148,8 @@
 
     setAttributeIfChanged(button, "title", t("trigger.title"));
     setDatasetIfChanged(button, "placement", mount.placement);
-    if (button.parentElement !== mount.section) mount.section.appendChild(button);
+    if (button.parentElement !== mount.header) mount.header.appendChild(button);
     if (!isRunning) setTriggerButton("gauge", t("trigger.label"));
-    if (mount.placement === "section" && getComputedStyle(mount.section).position === "static") {
-      mount.section.style.position = "relative";
-    }
-    positionDetailButton(button, mount.heading, mount.section, mount.placement);
     setDatasetIfChanged(button, "visible", "true");
     return true;
   };
@@ -1118,33 +1164,40 @@
       return false;
     }
 
-    const section = findProductUsageSection();
-    const heading = findProductChartHeading(section);
-    if (!section || !heading) {
+    const mount = usagePage.findMount();
+    if (!mount?.frame || !mount?.heading) {
+      if (meterChartModeAnimation) return false;
       removeUsageChartSwitch();
       return false;
     }
-
-    if (getComputedStyle(section).position === "static") section.style.position = "relative";
-    const detailMount = findUsageDetailsMount();
-    const switcherMount = detailMount?.section || section;
-    if (getComputedStyle(switcherMount).position === "static") switcherMount.style.position = "relative";
-    if (usageChartMode === CHART_MODES.source) {
-      setDatasetIfChanged(section, "cqmMeterChartMode", usageChartMode);
-    }
-    const chartMount = findProductChartFrame(section, heading);
-    if (!chartMount?.frame) {
-      removeUsageChartSwitch();
-      return false;
-    }
+    const { section, heading, chartBody, controlsRow } = mount;
+    setDatasetIfChanged(section, "cqmLayout", "usage");
+    setDatasetIfChanged(chartBody, "cqmLayout", "usage");
+    if (!chartBody.classList.contains("cqm-usage-chart-body")) chartBody.classList.add("cqm-usage-chart-body");
+    const chartMount = { frame: mount.frame, legend: mount.legend };
     markProductChartMount(chartMount);
+    ensureMeterPeriodLabel(mount);
+    setMeterPeriodLabel();
+    const sourceDimension = [...controlsRow.children].find((child) => child.matches("button"));
+    if (sourceDimension) setDatasetIfChanged(sourceDimension, "cqmSourceDimension", "true");
+    let toolbar = controlsRow.querySelector(".cqm-usage-toolbar");
+    if (!toolbar) {
+      toolbar = document.createElement("div");
+      toolbar.className = "cqm-usage-toolbar";
+      controlsRow.insertBefore(toolbar, mount.rangeGroup.nextSibling);
+    }
 
     let controls = document.getElementById(CHART_IDS.controls);
+    if (controls && controls.dataset.cqmContentVersion !== CONTENT_SCRIPT_VERSION) {
+      controls.remove();
+      controls = null;
+    }
     if (!controls) {
       controls = document.createElement("div");
       controls.id = CHART_IDS.controls;
+      controls.dataset.cqmContentVersion = CONTENT_SCRIPT_VERSION;
     }
-    if (controls.parentElement !== switcherMount) switcherMount.appendChild(controls);
+    if (controls.parentElement !== toolbar) toolbar.appendChild(controls);
 
     let switcher = document.getElementById(CHART_IDS.switcher);
     if (!switcher) {
@@ -1193,30 +1246,74 @@
         if (button && metric.contains(button)) {
           event.preventDefault();
           event.stopPropagation();
-          toggleMeterMetricMenu();
+          toggleMeterMenu(CHART_IDS.metric);
         }
       });
     }
-    setHtmlIfChanged(metric, renderMeterMetricControl());
+    const metricRenderKey = `${getLocale()}|${meterChartMetric}`;
+    if (metric.dataset.renderKey !== metricRenderKey) {
+      metric.dataset.renderKey = metricRenderKey;
+      setHtmlIfChanged(metric, renderMeterMetricControl());
+    }
     if (metric.parentElement !== controls) controls.appendChild(metric);
+
+    let grouping = document.getElementById(CHART_IDS.grouping);
+    if (!grouping) {
+      grouping = document.createElement("div");
+      grouping.id = CHART_IDS.grouping;
+      grouping.className = "cqm-chart-grouping";
+      grouping.addEventListener("click", (event) => {
+        const option = event.target.closest("[data-cqm-chart-grouping]");
+        if (option && grouping.contains(option)) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (option.getAttribute("aria-disabled") !== "true") {
+            setMeterChartGrouping(option.dataset.cqmChartGrouping);
+          }
+          return;
+        }
+        const button = event.target.closest(".cqm-chart-metric-button");
+        if (button && grouping.contains(button)) {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleMeterMenu(CHART_IDS.grouping);
+        }
+      });
+    }
+    const groupingRenderKey = meterGroupingRenderKey();
+    if (grouping.dataset.renderKey !== groupingRenderKey) {
+      grouping.dataset.renderKey = groupingRenderKey;
+      setHtmlIfChanged(grouping, renderMeterGroupingControl());
+    }
+    if (grouping.parentElement !== controls) controls.appendChild(grouping);
     installMeterMetricDismiss();
 
     let view = document.getElementById(CHART_IDS.view);
+    if (view && view.dataset.cqmContentVersion !== CONTENT_SCRIPT_VERSION) {
+      view.remove();
+      view = null;
+    }
     if (!view) {
       view = document.createElement("div");
       view.id = CHART_IDS.view;
       view.className = "cqm-meter-chart-view";
+      view.dataset.cqmContentVersion = CONTENT_SCRIPT_VERSION;
       view.addEventListener("pointermove", handleMeterChartPointerMove);
-      view.addEventListener("pointerleave", hideMeterChartTooltip);
+      view.addEventListener("pointerleave", handleMeterChartPointerLeave);
+      view.addEventListener("click", handleMeterChartClick);
+      view.addEventListener("keydown", handleMeterChartKeyDown);
+      view.addEventListener("focusin", handleMeterChartFocusIn);
+      view.addEventListener("focusout", handleMeterChartFocusOut);
     }
-    if (view.parentElement !== section) section.appendChild(view);
+    if (view.parentElement !== chartBody) chartBody.appendChild(view);
 
     setDatasetIfChanged(section, "cqmMeterChartMode", usageChartMode);
     updateUsageChartSwitcher(switcher);
     updateMeterMetricControl(metric);
-    positionUsageChartLayer(section, heading, controls, view, chartMount, switcherMount);
+    updateMeterGroupingControl(grouping);
+    positionUsageChartLayer(view);
     renderMeterChartView();
-    if (usageChartMode === CHART_MODES.meter && !latestReport) {
+    if (usageChartMode === CHART_MODES.meter && !reportCoversChartRange(latestReport)) {
       renderMeterChartLoading();
       ensurePassiveReport({ allowRefresh: true }).then((report) => {
         if (report && usageChartMode === CHART_MODES.meter) renderMeterChartView();
@@ -1226,20 +1323,47 @@
   };
 
   const removeUsageChartSwitch = () => {
+    finishUsageChartModeAnimation();
+    if (meterChartGeometryFrame) {
+      window.cancelAnimationFrame(meterChartGeometryFrame);
+      meterChartGeometryFrame = 0;
+    }
+    const tooltip = document.querySelector(`#${CHART_IDS.view} .cqm-meter-chart-tooltip`);
+    if (tooltip?.cqmHideTimer) window.clearTimeout(tooltip.cqmHideTimer);
     document.getElementById(CHART_IDS.controls)?.remove();
     document.getElementById(CHART_IDS.switcher)?.remove();
     document.getElementById(CHART_IDS.metric)?.remove();
+    document.getElementById(CHART_IDS.grouping)?.remove();
     document.getElementById(CHART_IDS.view)?.remove();
     clearProductChartMountMarks();
+    document.querySelectorAll(".cqm-usage-toolbar").forEach((toolbar) => toolbar.remove());
     document.querySelectorAll("[data-cqm-meter-chart-mode]").forEach((section) => {
       delete section.dataset.cqmMeterChartMode;
     });
+    document.querySelectorAll("[data-cqm-layout='usage']").forEach((element) => {
+      delete element.dataset.cqmLayout;
+      element.classList.remove("cqm-usage-chart-body");
+    });
+    document.querySelectorAll("[data-cqm-source-dimension]").forEach((element) => {
+      delete element.dataset.cqmSourceDimension;
+    });
+    document.querySelectorAll(".cqm-meter-period-label").forEach((element) => element.remove());
+    document.querySelectorAll("[data-cqm-source-period]").forEach((element) => {
+      delete element.dataset.cqmSourcePeriod;
+    });
+    meterChartPinnedIndex = null;
+    meterChartHoverIndex = null;
+    meterChartFocusIndex = 0;
   };
 
   const setUsageChartMode = (mode, { persistSettings = true } = {}) => {
     if (mode !== CHART_MODES.source && mode !== CHART_MODES.meter) return;
     if (mode === usageChartMode) return;
+    const previousMode = usageChartMode;
+    const transitionSnapshot = captureUsageChartModeTransition();
     usageChartMode = mode;
+    passiveReportError = null;
+    failedPassiveScopeKey = null;
     try {
       window.localStorage?.setItem(CHART_MODE_STORAGE_KEY, mode);
     } catch {}
@@ -1250,9 +1374,10 @@
       document.querySelectorAll("[data-cqm-meter-chart-mode]").forEach((section) => {
         setDatasetIfChanged(section, "cqmMeterChartMode", mode);
       });
-      hideMeterChartTooltip();
+      hideMeterChartTooltip(true);
     }
     ensureUsageChartSwitch();
+    animateUsageChartModeTransition(previousMode, mode, transitionSnapshot);
   };
 
   const setMeterChartMetric = (metric) => {
@@ -1261,17 +1386,89 @@
     try {
       window.localStorage?.setItem(CHART_METRIC_STORAGE_KEY, metric);
     } catch {}
-    const control = document.getElementById(CHART_IDS.metric);
-    if (control) setHtmlIfChanged(control, renderMeterMetricControl());
-    if (control) setDatasetIfChanged(control, "open", "false");
-    updateMeterMetricControl(control);
+    syncMeterChartGrouping(groupingAvailabilityRows());
+    meterChartHiddenSeries.clear();
+    meterChartPinnedIndex = null;
+    meterChartFocusIndex = 0;
+    hideMeterChartTooltip(true);
+    refreshMeterChartControls();
     renderMeterChartView();
   };
 
-  const toggleMeterMetricMenu = () => {
-    const control = document.getElementById(CHART_IDS.metric);
+  const legalMeterGroupings = (metric = meterChartMetric) =>
+    metric === CHART_METRICS.tokens
+      ? [SERIES_GROUPINGS.tokens, SERIES_GROUPINGS.clients]
+      : [SERIES_GROUPINGS.models, SERIES_GROUPINGS.clients, SERIES_GROUPINGS.total];
+
+  const defaultMeterGrouping = (metric = meterChartMetric) => {
+    if (metric === CHART_METRICS.tokens) return SERIES_GROUPINGS.tokens;
+    if (metric === CHART_METRICS.turns) return SERIES_GROUPINGS.models;
+    return SERIES_GROUPINGS.clients;
+  };
+
+  const groupingAvailabilityRows = () => {
+    if (!latestReport) return renderedMeterChartRows;
+    return meterChartRows(latestReport, meterChartScope(latestReport));
+  };
+
+  const isMeterGroupingAvailable = (grouping, metric = meterChartMetric, rows = groupingAvailabilityRows()) => {
+    if (!legalMeterGroupings(metric).includes(grouping)) return false;
+    if (grouping !== SERIES_GROUPINGS.models || ![CHART_METRICS.credits, CHART_METRICS.usd].includes(metric)) {
+      return true;
+    }
+    if (!latestReport) return true;
+    return rows.some((row) =>
+      (row.rawRow?.models || []).some((model) => n(model?.credits) > 0),
+    );
+  };
+
+  const syncMeterChartGrouping = (rows = groupingAvailabilityRows()) => {
+    const stored = meterChartGroupings[meterChartMetric];
+    const fallback = defaultMeterGrouping(meterChartMetric);
+    const next = isMeterGroupingAvailable(stored, meterChartMetric, rows)
+      ? stored
+      : isMeterGroupingAvailable(fallback, meterChartMetric, rows)
+        ? fallback
+        : legalMeterGroupings(meterChartMetric).find((grouping) =>
+            isMeterGroupingAvailable(grouping, meterChartMetric, rows),
+          ) || legalMeterGroupings(meterChartMetric)[0];
+    if (stored === next) return next;
+    meterChartGroupings[meterChartMetric] = next;
+    try {
+      window.localStorage?.setItem(CHART_GROUPING_STORAGE_KEY, JSON.stringify(meterChartGroupings));
+    } catch {}
+    return next;
+  };
+
+  const currentMeterChartGrouping = (rows = groupingAvailabilityRows()) => syncMeterChartGrouping(rows);
+
+  const setMeterChartGrouping = (grouping) => {
+    const rows = groupingAvailabilityRows();
+    if (!isMeterGroupingAvailable(grouping, meterChartMetric, rows)) return;
+    meterChartGroupings[meterChartMetric] = grouping;
+    meterChartHiddenSeries.clear();
+    try {
+      window.localStorage?.setItem(CHART_GROUPING_STORAGE_KEY, JSON.stringify(meterChartGroupings));
+    } catch {}
+    meterChartPinnedIndex = null;
+    meterChartFocusIndex = 0;
+    hideMeterChartTooltip(true);
+    refreshMeterChartControls();
+    renderMeterChartView();
+  };
+
+  const toggleMeterMenu = (controlId) => {
+    const control = document.getElementById(controlId);
     if (!control) return;
     const nextOpen = control.dataset.open === "true" ? "false" : "true";
+    [CHART_IDS.metric, CHART_IDS.grouping].forEach((id) => {
+      if (id === controlId) return;
+      const other = document.getElementById(id);
+      if (!other) return;
+      setDatasetIfChanged(other, "open", "false");
+      other.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
+    });
+    hideMeterChartTooltip(true);
     setDatasetIfChanged(control, "open", nextOpen);
     control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", nextOpen);
   };
@@ -1282,19 +1479,23 @@
     document.addEventListener(
       "pointerdown",
       (event) => {
-        const control = document.getElementById(CHART_IDS.metric);
-        if (!control || control.contains(event.target)) return;
-        setDatasetIfChanged(control, "open", "false");
-        control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
+        [CHART_IDS.metric, CHART_IDS.grouping].forEach((id) => {
+          const control = document.getElementById(id);
+          if (!control || control.contains(event.target)) return;
+          setDatasetIfChanged(control, "open", "false");
+          control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
+        });
       },
       true,
     );
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      const control = document.getElementById(CHART_IDS.metric);
-      if (!control) return;
-      setDatasetIfChanged(control, "open", "false");
-      control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
+      [CHART_IDS.metric, CHART_IDS.grouping].forEach((id) => {
+        const control = document.getElementById(id);
+        if (!control) return;
+        setDatasetIfChanged(control, "open", "false");
+        control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
+      });
     });
   };
 
@@ -1308,16 +1509,16 @@
   };
 
   const meterMetricColors = {
-    [CHART_METRICS.credits]: "#dc2626",
-    [CHART_METRICS.tokens]: "#1d4ed8",
-    [CHART_METRICS.usd]: "#059669",
-    [CHART_METRICS.turns]: "#7c2d12",
+    [CHART_METRICS.credits]: "var(--color-chart-blue)",
+    [CHART_METRICS.tokens]: "var(--color-chart-blue)",
+    [CHART_METRICS.usd]: "var(--color-chart-green)",
+    [CHART_METRICS.turns]: "var(--color-chart-purple)",
   };
 
   const meterTokenSeries = () => [
-    { key: "uncachedInput", label: t("chart.series.uncachedInput"), color: "#dc2626" },
-    { key: "cachedInput", label: t("chart.series.cachedInput"), color: "#7c2d12" },
-    { key: "output", label: t("chart.series.output"), color: "#1d4ed8" },
+    { key: "uncachedInput", label: t("chart.series.uncachedInput"), color: "var(--color-chart-orange)" },
+    { key: "cachedInput", label: t("chart.series.cachedInput"), color: "var(--color-chart-blue)" },
+    { key: "output", label: t("chart.series.output"), color: "var(--color-chart-purple)" },
   ];
 
   const meterMetricOptions = () => [
@@ -1339,10 +1540,8 @@
         aria-haspopup="menu"
         aria-expanded="false"
       >
-        <span class="cqm-chart-metric-label">${escapeHtml(t("chart.metric"))}:</span>
-        <i class="cqm-chart-metric-swatch" style="--cqm-series-color:${escapeHtml(current.color)}"></i>
         <span>${escapeHtml(current.label)}</span>
-        ${icon("chevronDown")}
+        ${chartChevronIcon()}
       </button>
       <div class="cqm-chart-metric-menu" role="menu">
         ${meterMetricOptions()
@@ -1356,7 +1555,7 @@
                 data-cqm-chart-metric="${option.key}"
               >
                 <span><i class="cqm-chart-metric-swatch" style="--cqm-series-color:${escapeHtml(option.color)}"></i>${escapeHtml(option.label)}</span>
-                ${icon("check")}
+                ${chartCheckIcon()}
               </button>
             `,
           )
@@ -1376,55 +1575,358 @@
     });
   };
 
-  const positionUsageChartLayer = (section, heading, controls, view, chartMount, switcherMount) => {
-    const sectionRect = section.getBoundingClientRect();
-    const switcherMountRect = switcherMount.getBoundingClientRect();
-    const headingRect = heading.getBoundingClientRect();
-    const frameRect = chartMount.frame.getBoundingClientRect();
-    const legendRect = chartMount.legend?.getBoundingClientRect();
-    const buttonRect = document.getElementById(IDS.button)?.getBoundingClientRect();
-    const chartTop = Math.max(0, Math.round(frameRect.top - sectionRect.top));
-    const chartBottom = Math.round((legendRect?.bottom || frameRect.bottom) - sectionRect.top);
-    const height = Math.max(260, Math.min(620, chartBottom - chartTop));
-    const svgHeight = Math.round(frameRect.height);
-    const legendGap = Math.max(0, Math.round((legendRect?.top ?? frameRect.bottom) - frameRect.bottom));
-    const switcherHeight = 30;
-    setDatasetIfChanged(controls, "layout", "inline");
-    if (buttonRect) {
-      const minControlsWidth = usageChartMode === CHART_MODES.meter ? 456 : 172;
-      const availableBeforeButton = Math.max(0, Math.round(buttonRect.left - switcherMountRect.left - 16));
-      const compact = availableBeforeButton < minControlsWidth;
-      const top = Math.max(
-        0,
-        Math.round(
-          buttonRect.top -
-            switcherMountRect.top +
-            (compact ? buttonRect.height + 8 : (buttonRect.height - switcherHeight) / 2),
-        ),
-      );
-      const buttonLeftRight = Math.max(24, Math.round(switcherMountRect.right - buttonRect.left));
-      controls.style.setProperty("--cqm-chart-controls-top", `${top}px`);
-      controls.style.setProperty("--cqm-chart-controls-right", `${compact ? 24 : buttonLeftRight + 8}px`);
-      controls.style.setProperty(
-        "--cqm-chart-controls-max-width",
-        `${Math.max(240, Math.round(switcherMountRect.width - 48))}px`,
-      );
-      setDatasetIfChanged(controls, "layout", compact ? "compact" : "inline");
-    } else {
-      const top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 1));
-      controls.style.setProperty("--cqm-chart-controls-top", `${top}px`);
-      controls.style.setProperty("--cqm-chart-controls-right", "24px");
-      controls.style.setProperty("--cqm-chart-controls-max-width", `${Math.max(240, Math.round(sectionRect.width - 48))}px`);
+  const meterGroupingLabel = (grouping) => t(`chart.groupings.${grouping}`);
+
+  const meterGroupingOptions = (rows = groupingAvailabilityRows()) =>
+    legalMeterGroupings().map((grouping) => ({
+      key: grouping,
+      label: meterGroupingLabel(grouping),
+      available: isMeterGroupingAvailable(grouping, meterChartMetric, rows),
+      reason:
+        grouping === SERIES_GROUPINGS.models && [CHART_METRICS.credits, CHART_METRICS.usd].includes(meterChartMetric)
+          ? t("chart.modelCreditsUnavailable")
+          : "",
+    }));
+
+  const meterGroupingRenderKey = () => {
+    const rows = groupingAvailabilityRows();
+    return `${getLocale()}|${meterChartMetric}|${currentMeterChartGrouping(rows)}|${meterGroupingOptions(rows)
+      .map((option) => `${option.key}:${option.available}`)
+      .join("|")}`;
+  };
+
+  const renderMeterGroupingControl = () => {
+    const rows = groupingAvailabilityRows();
+    const current = currentMeterChartGrouping(rows);
+    return `
+      <button
+        type="button"
+        class="cqm-chart-metric-button cqm-chart-grouping-button"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-label="${escapeHtml(`${t("chart.grouping")}: ${meterGroupingLabel(current)}`)}"
+      >
+        <span>${escapeHtml(meterGroupingLabel(current))}</span>
+        ${chartChevronIcon()}
+      </button>
+      <div class="cqm-chart-metric-menu cqm-chart-grouping-menu" role="menu">
+        ${meterGroupingOptions(rows)
+          .map(
+            (option) => `
+              <button
+                type="button"
+                class="cqm-chart-metric-option cqm-chart-grouping-option"
+                role="menuitemradio"
+                aria-checked="${option.key === current ? "true" : "false"}"
+                aria-disabled="${option.available ? "false" : "true"}"
+                data-cqm-chart-grouping="${option.key}"
+                ${option.available ? "" : `title="${escapeHtml(option.reason)}"`}
+              >
+                <span>${escapeHtml(option.label)}${
+                  option.available ? "" : `<small class="cqm-chart-option-note">${escapeHtml(option.reason)}</small>`
+                }</span>
+                ${chartCheckIcon()}
+              </button>
+            `,
+          )
+          .join("")}
+      </div>
+    `;
+  };
+
+  const updateMeterGroupingControl = (control = document.getElementById(CHART_IDS.grouping)) => {
+    if (!control) return;
+    const visible = usageChartMode === CHART_MODES.meter;
+    setDatasetIfChanged(control, "visible", visible ? "true" : "false");
+    if (!visible) setDatasetIfChanged(control, "open", "false");
+    control.querySelector(".cqm-chart-metric-button")?.setAttribute(
+      "aria-expanded",
+      control.dataset.open === "true" ? "true" : "false",
+    );
+  };
+
+  const refreshMeterChartControls = () => {
+    const metric = document.getElementById(CHART_IDS.metric);
+    if (metric) {
+      metric.dataset.renderKey = `${getLocale()}|${meterChartMetric}`;
+      setHtmlIfChanged(metric, renderMeterMetricControl());
+      setDatasetIfChanged(metric, "open", "false");
+      updateMeterMetricControl(metric);
     }
-    view.style.setProperty("--cqm-meter-chart-top", `${chartTop}px`);
-    view.style.setProperty("--cqm-meter-chart-height", `${height}px`);
-    view.style.setProperty("--cqm-meter-svg-height", `${svgHeight}px`);
-    view.style.setProperty("--cqm-meter-legend-gap", `${legendGap}px`);
+    const grouping = document.getElementById(CHART_IDS.grouping);
+    if (grouping) {
+      grouping.dataset.renderKey = meterGroupingRenderKey();
+      setHtmlIfChanged(grouping, renderMeterGroupingControl());
+      setDatasetIfChanged(grouping, "open", "false");
+      updateMeterGroupingControl(grouping);
+    }
+  };
+
+  const positionUsageChartLayer = () => {};
+
+  const prefersReducedMeterMotion = () =>
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+
+  const finishUsageChartModeAnimation = () => {
+    if (!meterChartModeAnimation) return;
+    meterChartModeAnimation.cleanup();
+    meterChartModeAnimation = null;
+  };
+
+  const METER_MODE_INLINE_PROPERTIES = [
+    "display",
+    "position",
+    "left",
+    "top",
+    "width",
+    "height",
+    "box-sizing",
+    "z-index",
+    "pointer-events",
+    "opacity",
+    "flex-shrink",
+  ];
+
+  const captureInlineStyles = (element, properties = METER_MODE_INLINE_PROPERTIES) =>
+    Object.fromEntries(
+      properties.map((property) => [
+        property,
+        {
+          value: element.style.getPropertyValue(property),
+          priority: element.style.getPropertyPriority(property),
+        },
+      ]),
+    );
+
+  const restoreInlineStyles = (element, styles) => {
+    if (!element || !styles) return;
+    Object.entries(styles).forEach(([property, { value, priority }]) => {
+      if (value) element.style.setProperty(property, value, priority);
+      else element.style.removeProperty(property);
+    });
+  };
+
+  const transitionSnapshotStyles = (element, activeAnimation) => {
+    const original = activeAnimation?.originalStylesByElement?.get(element);
+    if (!original) return captureInlineStyles(element);
+    if (activeAnimation.fullRestoreElements?.has(element)) return original;
+    const current = captureInlineStyles(element);
+    if (original["flex-shrink"]) current["flex-shrink"] = original["flex-shrink"];
+    return current;
+  };
+
+  const captureUsageChartModeTransition = () => {
+    const activeAnimation = meterChartModeAnimation;
+    const mount = usagePage.findMount();
+    const view = document.getElementById(CHART_IDS.view);
+    if (!mount?.chartBody || !view) {
+      finishUsageChartModeAnimation();
+      return null;
+    }
+    const bodyRect = mount.chartBody.getBoundingClientRect();
+    const sourceLayers = [mount.frame, mount.legend].filter(Boolean);
+    const source = sourceLayers.map((element) => {
+      const rect = element.getBoundingClientRect();
+      const computed = getComputedStyle(element);
+      return {
+        element,
+        display: computed.display === "none" ? "block" : computed.display,
+        opacity: computed.display === "none" ? 0 : n(computed.opacity || 1),
+        inlineStyles: transitionSnapshotStyles(element, activeAnimation),
+        left: rect.left - bodyRect.left,
+        top: rect.top - bodyRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+    const viewRect = view.getBoundingClientRect();
+    const viewComputed = getComputedStyle(view);
+    const snapshot = {
+      chartBody: mount.chartBody,
+      bodyHeight: bodyRect.height,
+      bodyInlineStyles:
+        activeAnimation?.bodyInlineStyles || captureInlineStyles(mount.chartBody, ["height", "overflow", "transition"]),
+      source,
+      view: {
+        element: view,
+        display: viewComputed.display === "none" ? "block" : viewComputed.display,
+        opacity: viewComputed.display === "none" ? 0 : n(viewComputed.opacity),
+        inlineStyles: transitionSnapshotStyles(view, activeAnimation),
+        left: viewRect.left - bodyRect.left,
+        top: viewRect.top - bodyRect.top,
+        width: viewRect.width,
+        height: viewRect.height,
+      },
+    };
+    finishUsageChartModeAnimation();
+    return snapshot;
+  };
+
+  const animateUsageChartModeTransition = (previousMode, nextMode, snapshot) => {
+    if (!snapshot || previousMode === nextMode || prefersReducedMeterMotion()) return;
+    const mount = usagePage.findMount();
+    const view = document.getElementById(CHART_IDS.view);
+    if (!mount?.chartBody || mount.chartBody !== snapshot.chartBody || !view) return;
+    const body = mount.chartBody;
+    const duration = 300;
+    const outgoing = previousMode === CHART_MODES.source ? snapshot.source : [snapshot.view];
+    const incoming = nextMode === CHART_MODES.source ? [mount.frame, mount.legend].filter(Boolean) : [view];
+    const snapshotByElement = new Map([...snapshot.source, snapshot.view].map((layer) => [layer.element, layer]));
+    const initialTargetHeight = body.getBoundingClientRect().height;
+    const animations = [];
+    outgoing.forEach((layer) => {
+      const { element } = layer;
+      if (!element?.isConnected) return;
+      Object.assign(element.style, {
+        display: layer.display,
+        position: "absolute",
+        left: `${layer.left}px`,
+        top: `${layer.top}px`,
+        width: `${layer.width}px`,
+        height: `${layer.height}px`,
+        boxSizing: "border-box",
+        zIndex: "2",
+        pointerEvents: "none",
+      });
+      animations.push(
+        element.animate([{ opacity: layer.opacity }, { opacity: 0 }], {
+          duration,
+          easing: "cubic-bezier(.2, 0, 0, 1)",
+          fill: "forwards",
+        }),
+      );
+    });
+    incoming.forEach((element) => {
+      if (!element?.isConnected) return;
+      if (!snapshotByElement.has(element)) {
+        snapshotByElement.set(element, {
+          element,
+          opacity: 0,
+          inlineStyles: captureInlineStyles(element),
+        });
+      }
+      const startOpacity = snapshotByElement.get(element)?.opacity ?? 0;
+      element.style.flexShrink = "0";
+      animations.push(
+        element.animate([{ opacity: startOpacity }, { opacity: 1 }], {
+          duration,
+          easing: "cubic-bezier(.2, 0, 0, 1)",
+          fill: "forwards",
+        }),
+      );
+    });
+    body.style.height = `${snapshot.bodyHeight}px`;
+    body.style.overflow = "hidden";
+    body.style.transition = `height ${duration}ms cubic-bezier(.2, 0, 0, 1)`;
+    body.getBoundingClientRect();
+    let heightFrame = 0;
+    let maxTimer = 0;
+    let cleaned = false;
+    let lastTargetHeight = initialTargetHeight;
+    let targetChangedAt = performance.now();
+    const refreshIncomingElements = () => {
+      if (nextMode !== CHART_MODES.source) return incoming.filter((element) => element?.isConnected);
+      const liveMount = usagePage.findMount();
+      [liveMount?.frame, liveMount?.legend].filter(Boolean).forEach((element) => {
+        if (!incoming.includes(element)) incoming.push(element);
+        if (!snapshotByElement.has(element)) {
+          const layer = { element, opacity: 0, inlineStyles: captureInlineStyles(element) };
+          snapshotByElement.set(element, layer);
+          meterChartModeAnimation?.originalStylesByElement?.set(element, layer.inlineStyles);
+          element.style.flexShrink = "0";
+          if (!prefersReducedMeterMotion() && element.animate) {
+            animations.push(
+              element.animate([{ opacity: 0 }, { opacity: 1 }], {
+                duration,
+                easing: "cubic-bezier(.2, 0, 0, 1)",
+                fill: "forwards",
+              }),
+            );
+          }
+        }
+      });
+      return incoming.filter((element) => element?.isConnected);
+    };
+    const measureIncomingHeight = () => {
+      const bodyRect = body.getBoundingClientRect();
+      const connected = refreshIncomingElements().filter((element) => getComputedStyle(element).display !== "none");
+      if (!connected.length) return lastTargetHeight;
+      const paddingBottom = Number.parseFloat(getComputedStyle(body).paddingBottom) || 0;
+      return (
+        Math.max(
+          ...connected.map((element) => {
+            const style = getComputedStyle(element);
+            const marginBottom = Number.parseFloat(style.marginBottom) || 0;
+            const rect = element.getBoundingClientRect();
+            const contentHeight = Math.max(rect.height, element.scrollHeight || 0);
+            return rect.top - bodyRect.top + contentHeight + marginBottom;
+          }),
+        ) + paddingBottom
+      );
+    };
+    lastTargetHeight = measureIncomingHeight();
+    targetChangedAt = performance.now();
+    body.style.height = `${lastTargetHeight}px`;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      window.cancelAnimationFrame(heightFrame);
+      window.clearTimeout(maxTimer);
+      animations.forEach((animation) => animation.cancel());
+      const fullRestoreElements = new Set(outgoing.map((layer) => layer.element));
+      fullRestoreElements.forEach((element) => {
+        restoreInlineStyles(element, snapshotByElement.get(element)?.inlineStyles);
+      });
+      incoming.forEach((element) => {
+        if (fullRestoreElements.has(element)) return;
+        const flexShrink = snapshotByElement.get(element)?.inlineStyles?.["flex-shrink"];
+        if (flexShrink) restoreInlineStyles(element, { "flex-shrink": flexShrink });
+      });
+      restoreInlineStyles(body, snapshot.bodyInlineStyles);
+    };
+    meterChartModeAnimation = {
+      cleanup,
+      originalStylesByElement: new Map(
+        [...snapshotByElement.entries()].map(([element, layer]) => [element, layer.inlineStyles]),
+      ),
+      fullRestoreElements: new Set(outgoing.map((layer) => layer.element)),
+      bodyInlineStyles: snapshot.bodyInlineStyles,
+    };
+    const startedAt = performance.now();
+    const trackIncomingHeight = (now) => {
+      if (meterChartModeAnimation?.cleanup !== cleanup) return;
+      const nextTargetHeight = measureIncomingHeight();
+      if (Math.abs(nextTargetHeight - lastTargetHeight) > 0.5) {
+        lastTargetHeight = nextTargetHeight;
+        targetChangedAt = now;
+        body.style.height = `${nextTargetHeight}px`;
+      }
+      const liveLegend = nextMode === CHART_MODES.source ? usagePage.findMount()?.legend : null;
+      const sourceLegendReady = nextMode !== CHART_MODES.source || Boolean(liveLegend?.isConnected && liveLegend.getBoundingClientRect().height > 1);
+      if (now - startedAt >= duration && sourceLegendReady && now - targetChangedAt >= duration) {
+        cleanup();
+        meterChartModeAnimation = null;
+        return;
+      }
+      heightFrame = window.requestAnimationFrame(trackIncomingHeight);
+    };
+    heightFrame = window.requestAnimationFrame(trackIncomingHeight);
+    maxTimer = window.setTimeout(() => {
+      if (meterChartModeAnimation?.cleanup !== cleanup) return;
+      const finalTargetHeight = measureIncomingHeight();
+      body.style.height = `${finalTargetHeight}px`;
+      window.setTimeout(() => {
+        if (meterChartModeAnimation?.cleanup !== cleanup) return;
+        cleanup();
+        meterChartModeAnimation = null;
+      }, duration);
+    }, 1200);
   };
 
   const renderMeterChartLoading = () => {
     const view = document.getElementById(CHART_IDS.view);
     if (!view) return;
+    delete view.dataset.chartKey;
     setHtmlIfChanged(
       view,
       `<div class="cqm-meter-chart-state">${icon("sparkles")}<span>${escapeHtml(t("chart.loading"))}</span></div>`,
@@ -1434,6 +1936,10 @@
   const renderMeterChartView = () => {
     const view = document.getElementById(CHART_IDS.view);
     if (!view) return;
+    if (passiveReportError && failedPassiveScopeKey === meterChartScope().key && !reportCoversChartRange(latestReport)) {
+      setHtmlIfChanged(view, `<div class="cqm-meter-chart-state" role="alert">${escapeHtml(passiveReportError)}</div>`);
+      return;
+    }
     if (!latestReport) {
       renderedMeterChartRows = [];
       renderMeterChartLoading();
@@ -1450,30 +1956,79 @@
       );
       return;
     }
+    if (renderedMeterChartScopeKey && renderedMeterChartScopeKey !== scope.key) {
+      meterChartHiddenSeries.clear();
+      meterChartPinnedIndex = null;
+      meterChartHoverIndex = null;
+      meterChartFocusIndex = 0;
+    }
+    renderedMeterChartScopeKey = scope.key;
+    const previousGrouping = meterChartGroupings[meterChartMetric];
+    const grouping = syncMeterChartGrouping(rows);
+    if (previousGrouping !== grouping) refreshMeterChartControls();
+    if (meterChartPinnedIndex != null && meterChartPinnedIndex >= rows.length) {
+      meterChartPinnedIndex = null;
+      meterChartFocusIndex = 0;
+    }
+    const rawRows = rows.filter((row) => !row.missing && row.rawRow).map((row) => row.rawRow);
+    const fullSummary = domain.chartSummary(rawRows, meterChartMetric, grouping);
+    const selectedRows = meterChartPinnedIndex == null ? rawRows : rawRows.filter((row) => row.date === rows[meterChartPinnedIndex]?.date);
+    const selectedSummary = domain.chartSummary(selectedRows, meterChartMetric, grouping);
+    const legend = meterChartLegend(fullSummary, fullSummary, false);
+    const hidden = normalizedMeterHiddenSeries(legend.map((series) => series.key), grouping);
     const chartWidth = meterChartRenderWidth(view);
-    const key = `${getLocale()}|${meterChartMetric}|${scope.key}|${chartWidth}|${rows
-      .map((row) => `${row.date}:${row.endDate || ""}:${row.credits}:${row.tokens}:${row.uncachedInputTokens}:${row.cachedInputTokens}:${row.outputTokens}:${row.turns}`)
-      .join("|")}`;
-    if (view.dataset.chartKey === key) return;
-    view.dataset.chartKey = key;
+    const rowDigest = rows
+      .map((row) =>
+        `${row.date}:${row.missing ? "missing" : "data"}:${domain
+          .chartSeries(row.rawRow || {}, meterChartMetric, grouping)
+          .map((series) => `${series.key}:${series.value}`)
+          .join(",")}`,
+      )
+      .join("|");
+    const key = `${getLocale()}|${meterChartMetric}|${grouping}|${scope.key}|${chartWidth}|${[...hidden]
+      .sort()
+      .join(",")}|${rowDigest}`;
     renderedMeterChartRows = rows;
-    setHtmlIfChanged(view, renderMeterChart(rows, chartWidth));
+    renderedMeterChartLegend = legend;
+    if (view.dataset.chartKey !== key) {
+      view.dataset.chartKey = key;
+      patchMeterChart(view, rows, chartWidth, {
+        scope,
+        grouping,
+        fullSummary,
+        selectedSummary,
+        legend,
+        hidden,
+      });
+    }
+    restoreMeterChartSelection(view);
+    updateMeterChartSummaryPreview(meterChartPinnedIndex ?? meterChartHoverIndex);
+    const groupingControl = document.getElementById(CHART_IDS.grouping);
+    const groupingRenderKey = meterGroupingRenderKey();
+    if (groupingControl && groupingControl.dataset.renderKey !== groupingRenderKey) {
+      groupingControl.dataset.renderKey = groupingRenderKey;
+      setHtmlIfChanged(groupingControl, renderMeterGroupingControl());
+      updateMeterGroupingControl(groupingControl);
+    }
   };
 
   const meterChartRenderWidth = (view) => {
     const rectWidth = view?.getBoundingClientRect?.().width || 0;
-    return Math.max(360, Math.round(rectWidth || 952));
+    const parentWidth = view?.parentElement?.getBoundingClientRect?.().width || 0;
+    return Math.max(1, Math.round(rectWidth || parentWidth || 952));
   };
 
   const meterChartRows = (report, scope = meterChartScope(report)) => {
     const dailyRows = sortedDailyRows(report).filter(
       (row) => row.date >= scope.startDate && row.date <= scope.endDate,
     );
-    const rows =
-      scope.grouping === CHART_GROUPINGS.week
-        ? aggregateMeterRowsByWeek(dailyRows, scope)
-        : dailyRows.map((row) => meterChartRowFromTotals(row.date, row.totals || {}));
-    return rows.filter((row) => row.credits > 0 || row.tokens > 0 || row.turns > 0);
+    const byDate = new Map(dailyRows.map((row) => [row.date, row]));
+    const rows = [];
+    for (let date = scope.startDate; date <= scope.endDate; date = dateKeyAdd(date, 1)) {
+      const row = byDate.get(date);
+      rows.push({ ...meterChartRowFromTotals(date, row?.totals || {}, { rawRow: row || null }), missing: !row });
+    }
+    return rows;
   };
 
   const sortedDailyRows = (report) =>
@@ -1481,145 +2036,26 @@
       .filter((row) => row?.date && row.date <= domain.localDate())
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
-  const meterChartScope = (report) => {
+  const meterChartScope = () => {
     const today = domain.localDate();
-    const reportExtent = dailyReportExtent(report) || {
-      startDate: dateKeyAdd(today, -31),
+    const days = usagePage.readRangeDays();
+    const extent = usagePage.readDateRange(getPageLocale()) || {
+      startDate: dateKeyAdd(today, -(days - 1)),
       endDate: today,
     };
-    const range = detectOfficialChartRange();
-    const grouping = detectOfficialChartGrouping();
-    const officialExtent = officialChartDateExtent(report);
-    const officialSpan = officialExtent ? daysBetween(officialExtent.startDate, officialExtent.endDate) : 0;
-    const canUseOfficialExtent =
-      officialExtent &&
-      (range === CHART_RANGES.custom ||
-        (range === CHART_RANGES.sevenDays && officialSpan <= 10) ||
-        (range === CHART_RANGES.month && officialSpan >= 20 && officialSpan <= 40));
-
-    let startDate = canUseOfficialExtent ? officialExtent.startDate : reportExtent.startDate;
-    let endDate = canUseOfficialExtent ? officialExtent.endDate : reportExtent.endDate;
-
-    if (!canUseOfficialExtent) {
-      if (range === CHART_RANGES.sevenDays) {
-        startDate = dateKeyAdd(today, -6);
-        endDate = today;
-      } else if (range === CHART_RANGES.month) {
-        startDate = dateKeyAdd(today, -31);
-        endDate = today;
-      }
-    }
-
-    startDate = maxDateKey(startDate, reportExtent.startDate);
-    endDate = minDateKey(endDate, reportExtent.endDate, today);
-    if (startDate > endDate) {
-      startDate = reportExtent.startDate;
-      endDate = reportExtent.endDate;
-    }
-
     return {
-      range,
-      grouping,
-      startDate,
-      endDate,
-      key: `${range}:${grouping}:${startDate}:${endDate}`,
+      range: days === 30 ? CHART_RANGES.month : CHART_RANGES.sevenDays,
+      grouping: CHART_GROUPINGS.day,
+      ...extent,
+      key: `${days}:day:${extent.startDate}:${extent.endDate}`,
     };
   };
 
-  const dailyReportExtent = (report) => {
-    const rows = sortedDailyRows(report);
-    if (!rows.length) return null;
-    return {
-      startDate: rows[0].date,
-      endDate: rows.at(-1).date,
-    };
-  };
-
-  const detectOfficialChartRange = () => {
-    const buttons = findOfficialRangeButtons();
-    const activeIndex = buttons.findIndex(isOfficialActiveSegmentButton);
-    if (activeIndex === 0) return CHART_RANGES.sevenDays;
-    if (activeIndex === 1) return CHART_RANGES.month;
-    if (activeIndex === 2) return CHART_RANGES.custom;
-
-    const activeText = normalizedText(buttons.find(isOfficialActiveSegmentButton)?.textContent || "");
-    if (/(^|[^0-9])7([^0-9]|$)/.test(activeText)) return CHART_RANGES.sevenDays;
-    if (/month|monate|mes|mois|месяц|月|개월/.test(activeText)) return CHART_RANGES.month;
-    if (/custom|自定义|自訂|カスタム|personnalis|personaliz|benutzer|польз/.test(activeText)) {
-      return CHART_RANGES.custom;
-    }
-    return CHART_RANGES.month;
-  };
-
-  const findOfficialRangeButtons = () => {
-    const groups = [...document.querySelectorAll("main div")]
-      .filter((element) => !isCodexMeterOwned(element))
-      .map((group) => [...group.children].filter((child) => child.matches?.("button")))
-      .filter((buttons) => buttons.length >= 3)
-      .filter((buttons) => buttons.slice(0, 3).some((button) => button.getAttribute("aria-haspopup") === "dialog"))
-      .filter((buttons) => buttons.every((button) => button.getBoundingClientRect().height > 0))
-      .sort((a, b) => a[0].getBoundingClientRect().top - b[0].getBoundingClientRect().top);
-    return groups[0]?.slice(0, 3) || [];
-  };
-
-  const isOfficialActiveSegmentButton = (button) => {
-    const className = String(button?.className || "");
-    return (
-      /\bbg-token-bg-primary\b/.test(className) ||
-      /\bshadow-sm\b/.test(className) ||
-      button?.getAttribute("aria-selected") === "true" ||
-      button?.getAttribute("aria-pressed") === "true"
-    );
-  };
-
-  const detectOfficialChartGrouping = () => {
-    const button = [...document.querySelectorAll("main button[role='combobox']")]
-      .filter((element) => !isCodexMeterOwned(element) && isRenderableElement(element))
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
-    const text = normalizedText(button?.textContent || "");
-    if (
-      /week|weeks|semana|semaine|woche|недел|週|周/.test(text)
-    ) {
-      return CHART_GROUPINGS.week;
-    }
-    return CHART_GROUPINGS.day;
-  };
-
-  const officialChartDateExtent = (report) => {
-    const rows = sortedDailyRows(report);
-    if (!rows.length) return null;
-    const frame =
-      document.querySelector("[data-cqm-source-chart-frame='true']") ||
-      (() => {
-        const section = findProductUsageSection();
-        return findProductChartFrame(section, findProductChartHeading(section))?.frame || null;
-      })();
-    if (!frame) return null;
-
-    const rowByDate = new Map(rows.map((row) => [row.date, row]));
-    const matchedDates = [];
-    const labels = [...frame.querySelectorAll("text,tspan")]
-      .map((element) => elementText(element))
-      .filter(Boolean);
-    labels.forEach((label) => {
-      const explicitKeys = dateKeysFromTooltipText(label).filter((key) => rowByDate.has(key));
-      if (explicitKeys.length) {
-        matchedDates.push(...explicitKeys);
-        return;
-      }
-      rows.forEach((row) => {
-        if (dateVariants(row.date).some((variant) => textContainsDateVariant(label, variant))) {
-          matchedDates.push(row.date);
-        }
-      });
-    });
-
-    const dates = [...new Set(matchedDates)].sort();
-    if (dates.length < 2) return null;
-    return {
-      startDate: dates[0],
-      endDate: dates.at(-1),
-    };
+  const reportCoversChartRange = (report) => {
+    if (!report) return false;
+    const range = meterChartScope();
+    // Report request bounds describe coverage, including days without usage rows.
+    return report.startDate <= range.startDate && report.endDate > range.endDate;
   };
 
   const aggregateMeterRowsByWeek = (rows, scope) => {
@@ -1644,11 +2080,12 @@
       .map((bucket) => meterChartRowFromTotals(bucket.date, bucket.totals, { endDate: bucket.endDate }));
   };
 
-  const meterChartRowFromTotals = (date, totals, { endDate = date } = {}) => {
+  const meterChartRowFromTotals = (date, totals, { endDate = date, rawRow = null } = {}) => {
     const credits = n(totals.credits);
     const tokens = tokenTotal(totals);
     return {
-      row: { date, totals },
+      row: rawRow || { date, totals },
+      rawRow,
       date,
       endDate,
       credits,
@@ -1696,151 +2133,574 @@
   };
 
   const isCodexMeterOwned = (element) =>
-    Boolean(element?.closest?.(`#${IDS.overlay}, #${IDS.button}, #${CHART_IDS.controls}, #${CHART_IDS.view}`));
+    Boolean(
+      element?.closest?.(
+        `#${IDS.overlay}, #${IDS.button}, #${CHART_IDS.controls}, #${CHART_IDS.view}, .cqm-usage-toolbar, .cqm-meter-period-label`,
+      ),
+    );
 
-  const renderMeterChart = (rows, chartWidth = 952) => {
-    const width = Math.max(360, Math.round(chartWidth));
-    const height = 220;
-    const plot = { left: 40, right: 20, top: 29, bottom: 30 };
-    const plotWidth = width - plot.left - plot.right;
-    const plotHeight = height - plot.top - plot.bottom;
-    const values = rows.map((row) => meterMetricTotal(row));
-    const maxValue = Math.max(...values, 1);
-    const slot = plotWidth / rows.length;
-    const maxBarWidth = rows.length <= 8 ? 120 : rows.length <= 14 ? 72 : 28;
-    const barWidth = Math.max(3, Math.min(maxBarWidth, slot * 0.78));
-    const bandWidth = Math.max(barWidth + 10, Math.min(slot, slot * 0.9));
-    const barRadius = 3;
-    const axisX = 22;
-    const firstTickX = plot.left + (slot - barWidth) / 2 + 1.5;
-    const lastTickX = width - plot.right - (slot - barWidth) / 2 - 1.5;
-    const squarePath = (x, y, w, h) =>
-      `M${x.toFixed(2)},${y.toFixed(2)}H${(x + w).toFixed(2)}V${(y + h).toFixed(2)}H${x.toFixed(2)}Z`;
-    const roundedTopPath = (x, y, w, h) => {
-      const radius = Math.min(barRadius, w / 2, h);
-      if (radius <= 0.25) return squarePath(x, y, w, h);
-      return [
-        `M${x.toFixed(2)},${(y + h).toFixed(2)}`,
-        `L${x.toFixed(2)},${(y + radius).toFixed(2)}`,
-        `Q${x.toFixed(2)},${y.toFixed(2)} ${(x + radius).toFixed(2)},${y.toFixed(2)}`,
-        `H${(x + w - radius).toFixed(2)}`,
-        `Q${(x + w).toFixed(2)},${y.toFixed(2)} ${(x + w).toFixed(2)},${(y + radius).toFixed(2)}`,
-        `V${(y + h).toFixed(2)}Z`,
-      ].join("");
-    };
-    const bars = rows
-      .map((row, index) => {
-        const x = plot.left + slot * index + (slot - barWidth) / 2;
-        const total = values[index];
-        const hitHeight = total > 0 ? Math.max(2, (total / maxValue) * plotHeight) : 0;
-        const slotX = plot.left + slot * index;
-        const displaySegments = meterMetricSeries(row)
-          .filter((series) => series.value > 0 && total > 0)
-          .map((series) => ({
-            ...series,
-            height: (series.value / total) * hitHeight,
-          }))
-          .filter((series) => series.height >= 0.35);
-        let yCursor = plot.top + plotHeight;
-        const segments = displaySegments
-          .map((series, segmentIndex) => {
-            const isTopSegment = segmentIndex === displaySegments.length - 1;
-            yCursor -= series.height;
-            const y = Math.max(plot.top, yCursor);
-            const path = isTopSegment
-              ? roundedTopPath(x, y, barWidth, series.height)
-              : squarePath(x, y, barWidth, series.height);
-            return `
-              <path
-                class="cqm-meter-chart-bar-segment"
-                data-index="${index}"
-                data-series="${series.key}"
-                d="${path}"
-                style="--cqm-series-color:${escapeHtml(series.color)}"
-              />
-            `;
-          })
-          .join("");
-        const hitY = plot.top + plotHeight - hitHeight;
-        const bandX = slotX + (slot - bandWidth) / 2;
-        return `
-          ${segments}
-          <rect
-            class="cqm-meter-chart-hit"
-            data-index="${index}"
-            data-band-x="${bandX.toFixed(2)}"
-            data-band-width="${bandWidth.toFixed(2)}"
-            data-band-y="${plot.top.toFixed(2)}"
-            data-band-height="${plotHeight.toFixed(2)}"
-            x="${slotX.toFixed(2)}"
-            y="${plot.top.toFixed(2)}"
-            width="${slot.toFixed(2)}"
-            height="${plotHeight.toFixed(2)}"
-          />
-        `;
-      })
-      .join("");
-    const maxLabel = formatMeterMetricValue(maxValue);
-    return `
-      <svg class="cqm-meter-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Codex Meter">
-        <line class="cqm-meter-axis-line" x1="${plot.left}" x2="${width - plot.right}" y1="${plot.top + plotHeight}" y2="${plot.top + plotHeight}" />
-        <rect class="cqm-meter-chart-hover-band" hidden />
-        <text class="cqm-meter-axis-label" data-axis="y" x="${axisX}" y="4" text-anchor="start"><tspan x="${axisX}" dy="0.355em">${escapeHtml(maxLabel)}</tspan></text>
-        <text class="cqm-meter-axis-label" data-axis="y" x="${axisX}" y="${plot.top + plotHeight}" text-anchor="start"><tspan x="${axisX}" dy="0.355em">0</tspan></text>
-        ${bars}
-        <text class="cqm-meter-axis-label" x="${firstTickX.toFixed(2)}" y="${height - 12}">${escapeHtml(formatAxisDate(rows[0].date))}</text>
-        <text class="cqm-meter-axis-label" x="${lastTickX.toFixed(2)}" y="${height - 12}" text-anchor="end">${escapeHtml(formatAxisDate(rows.at(-1).endDate || rows.at(-1).date))}</text>
-      </svg>
-      <div class="cqm-meter-chart-legend">
-        ${meterMetricLegend()
-          .map((series) => `<span><i style="--cqm-series-color:${escapeHtml(series.color)}"></i>${escapeHtml(series.label)}</span>`)
-          .join("")}
-      </div>
-      <div class="cqm-meter-chart-tooltip" hidden></div>
-    `;
+  const meterSeriesPalette = [
+    "var(--color-text-info)",
+    "light-dark(#f3883b, #f59a56)",
+    "light-dark(#5dc977, #74d58b)",
+    "light-dark(#eb77b1, #f08fc0)",
+    "light-dark(#9b79ec, #aa91ef)",
+    "light-dark(#3ab9b1, #5acbc2)",
+    "var(--color-chart-yellow)",
+    "var(--color-chart-red)",
+    "var(--color-chart-purple)",
+  ];
+
+  const meterClientLabels = () => ({
+    CODEX_WORK_WEB: t("chart.clients.CODEX_WORK_WEB"),
+    CODEX_WORK_DESKTOP: t("chart.clients.CODEX_WORK_DESKTOP"),
+    CODEX_CLI: t("chart.clients.CODEX_CLI"),
+    CODEX_DESKTOP_APP: t("chart.clients.CODEX_DESKTOP_APP"),
+    CODEX_SERVICE_EXEC: t("chart.clients.CODEX_SERVICE_EXEC"),
+    CODEX_UNKNOWN_DEFAULT: t("chart.clients.CODEX_UNKNOWN_DEFAULT"),
+  });
+
+  const meterSeriesLabel = (series) => {
+    if (!series) return t("chart.other");
+    if (series.key === "unclassified") return t("chart.other");
+    if (series.key === "total") return currentMeterMetricOption().label;
+    const tokenLabel = {
+      uncachedInput: t("chart.series.uncachedInput"),
+      cachedInput: t("chart.series.cachedInput"),
+      output: t("chart.series.output"),
+    }[series.key];
+    if (tokenLabel) return tokenLabel;
+    const clientLabel = meterClientLabels()[series.key];
+    return clientLabel || series.label || series.key || t("chart.other");
   };
 
-  const meterMetricSeries = (row) => {
-    if (meterChartMetric === CHART_METRICS.tokens) {
-      const components = [
-        { ...meterTokenSeries()[0], value: n(row.uncachedInputTokens) },
-        { ...meterTokenSeries()[1], value: n(row.cachedInputTokens) },
-        { ...meterTokenSeries()[2], value: n(row.outputTokens) },
-      ];
-      const componentTotal = sumValues(components.map((series) => series.value));
-      if (componentTotal > 0) {
-        const residual = Math.max(0, n(row.tokens) - componentTotal);
-        if (residual > 0) components[2].value += residual;
-        return components;
+  const meterChartLegend = (fullSummary, selectedSummary, selectedMissing = false) => {
+    const selectedByKey = new Map((selectedSummary?.series || []).map((series) => [series.key, series]));
+    const selectedTotal = n(selectedSummary?.total);
+    return (fullSummary?.series || []).map((series, index) => {
+      const selected = selectedByKey.get(series.key);
+      const value = selectedMissing ? null : meterChartPinnedIndex == null ? n(series.value) : n(selected?.value);
+      return {
+        ...series,
+        label: meterSeriesLabel(series),
+        color:
+          series.key === "unclassified"
+            ? "var(--color-text-tertiary)"
+            : meterSeriesPalette[index % meterSeriesPalette.length],
+        value,
+        share: selectedMissing ? null : selectedTotal > 0 ? value / selectedTotal : 0,
+      };
+    });
+  };
+
+  const meterHiddenSeriesKey = (grouping = currentMeterChartGrouping()) => `${meterChartMetric}:${grouping}`;
+
+  const normalizedMeterHiddenSeries = (seriesKeys, grouping = currentMeterChartGrouping()) => {
+    const storageKey = meterHiddenSeriesKey(grouping);
+    const hidden = meterChartHiddenSeries.get(storageKey) || new Set();
+    [...hidden].forEach((key) => {
+      if (!seriesKeys.includes(key)) hidden.delete(key);
+    });
+    if (seriesKeys.length && seriesKeys.every((key) => hidden.has(key))) hidden.delete(seriesKeys[0]);
+    meterChartHiddenSeries.set(storageKey, hidden);
+    return hidden;
+  };
+
+  const meterRowSeries = (row, grouping, legend) => {
+    const byKey = new Map(
+      domain.chartSeries(row.rawRow || {}, meterChartMetric, grouping).map((series) => [series.key, series]),
+    );
+    return legend.map((meta) => ({ ...meta, value: n(byKey.get(meta.key)?.value) }));
+  };
+
+  const formatMeterPercent = (share) => {
+    if (share == null) return "—";
+    try {
+      const formatter = new Intl.NumberFormat(getPageLocale(), {
+        style: "percent",
+        maximumFractionDigits: 1,
+      });
+      return share > 0 && share < 0.001 ? `<${formatter.format(0.001)}` : formatter.format(n(share));
+    } catch {
+      return `${(n(share) * 100).toFixed(1)}%`;
+    }
+  };
+
+  const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+  const createMeterSvgElement = (tagName, className = "") => {
+    const element = document.createElementNS(SVG_NAMESPACE, tagName);
+    if (className) element.setAttribute("class", className);
+    return element;
+  };
+
+  const meterChartShell = (view) => {
+    let shell = view.querySelector(":scope > .cqm-meter-chart-shell");
+    if (shell) return shell;
+    setHtmlIfChanged(
+      view,
+      `<div class="cqm-meter-chart-shell">
+        <div class="cqm-meter-chart-actions" hidden><button type="button" class="cqm-meter-chart-overview" data-cqm-chart-overview></button></div>
+        <div class="cqm-chart-metadata-note" hidden></div>
+        <svg class="cqm-meter-chart-svg" role="group" aria-label="Codex Meter">
+          <defs data-cqm-chart-clips></defs>
+          <g data-cqm-chart-grid></g>
+          <rect class="cqm-meter-chart-slider" role="slider" tabindex="0" aria-orientation="horizontal" aria-valuemin="0" />
+          <g data-cqm-chart-bars></g>
+          <g data-cqm-chart-hits></g>
+          <g data-cqm-chart-axis></g>
+          <rect class="cqm-meter-chart-hover-band" hidden />
+        </svg>
+        <div class="cqm-chart-selection-note" role="status" hidden></div>
+        <div class="cqm-chart-legend-frame"><div class="cqm-chart-legend cqm-meter-chart-legend"></div></div>
+        <div class="cqm-chart-tooltip cqm-meter-chart-tooltip" role="tooltip" hidden></div>
+      </div>`,
+    );
+    shell = view.querySelector(":scope > .cqm-meter-chart-shell");
+    return shell;
+  };
+
+  const meterKeyedChild = (parent, attribute, key) =>
+    [...(parent?.children || [])].find((element) => element.getAttribute(attribute) === String(key)) || null;
+
+  const queueMeterGeometry = (updates, element, attributes, initial = {}) => {
+    Object.entries(attributes).forEach(([attribute, targetValue]) => {
+      const target = Number(targetValue);
+      const rawCurrent = element.getAttribute(attribute);
+      let current = rawCurrent == null ? Number.NaN : Number(rawCurrent);
+      if (!Number.isFinite(current)) {
+        current = Number.isFinite(Number(initial[attribute])) ? Number(initial[attribute]) : target;
+        element.setAttribute(attribute, String(current));
       }
-      return [{ ...meterTokenSeries()[0], value: n(row.tokens) }];
-    }
-    if (meterChartMetric === CHART_METRICS.usd) {
-      return [{ key: "usd", label: t("table.usd"), color: meterMetricColors[CHART_METRICS.usd], value: n(row.usd) }];
-    }
-    if (meterChartMetric === CHART_METRICS.turns) {
-      return [{ key: "turns", label: t("table.turns"), color: meterMetricColors[CHART_METRICS.turns], value: n(row.turns) }];
-    }
-    return [{ key: "credits", label: t("table.credits"), color: meterMetricColors[CHART_METRICS.credits], value: n(row.credits) }];
+      if (Math.abs(current - target) <= 0.01) {
+        element.setAttribute(attribute, String(target));
+        return;
+      }
+      updates.push({ element, attribute, from: current, to: target });
+    });
   };
 
-  const meterMetricTotal = (row) => {
-    if (meterChartMetric === CHART_METRICS.tokens) {
-      const componentTotal = n(row.uncachedInputTokens) + n(row.cachedInputTokens) + n(row.outputTokens);
-      return Math.max(n(row.tokens), componentTotal);
+  const runMeterGeometryAnimation = (updates, removals) => {
+    if (meterChartGeometryFrame) window.cancelAnimationFrame(meterChartGeometryFrame);
+    const finish = () => {
+      updates.forEach(({ element, attribute, to }) => element.isConnected && element.setAttribute(attribute, String(to)));
+      removals.forEach((element) => {
+        if (element?.dataset?.cqmRemoving === "true") element.remove();
+      });
+    };
+    if (!updates.length || prefersReducedMeterMotion()) {
+      finish();
+      meterChartGeometryFrame = 0;
+      return;
     }
-    return sumValues(meterMetricSeries(row).map((series) => series.value));
+    const duration = 300;
+    const start = performance.now();
+    const step = (now) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      updates.forEach(({ element, attribute, from, to }) => {
+        if (element.isConnected) element.setAttribute(attribute, String(from + (to - from) * eased));
+      });
+      if (progress < 1) {
+        meterChartGeometryFrame = window.requestAnimationFrame(step);
+        return;
+      }
+      finish();
+      meterChartGeometryFrame = 0;
+    };
+    meterChartGeometryFrame = window.requestAnimationFrame(step);
   };
 
-  const meterMetricLegend = () => {
-    if (meterChartMetric === CHART_METRICS.tokens) return meterTokenSeries();
-    const current = currentMeterMetricOption();
-    return [{ key: current.key, label: current.label, color: current.color }];
+  const meterChartGeometry = (rows, chartWidth, state) => {
+    const width = Math.max(1, Math.round(chartWidth));
+    const height = 144;
+    const plotTop = 20;
+    const baseline = 122;
+    const plotHeight = baseline - plotTop;
+    const horizontalInset = 20;
+    const plotWidth = Math.max(1, width - horizontalInset * 2);
+    const slot = plotWidth / Math.max(1, rows.length);
+    const barWidth = Math.max(1, Math.min(38, Math.ceil(slot * 0.8)));
+    const firstBarX = Math.round(horizontalInset + (slot - barWidth) / 2);
+    const rowSeries = rows.map((row) => meterRowSeries(row, state.grouping, state.legend));
+    const actualTotals = rowSeries.map((series) =>
+      sumValues(series.map((item) => Math.max(0, n(item.value)))),
+    );
+    const actualMaximum = Math.max(0, ...actualTotals);
+    const maxValue = actualMaximum > 0 ? actualMaximum * 1.05 : 1;
+    const rowGeometry = rows.map((row, index) => {
+      const x = firstBarX + index * slot;
+      let yCursor = baseline;
+      const segments = rowSeries[index].map((series) => {
+        const visible = !state.hidden.has(series.key);
+        const value = Math.max(0, n(series.value));
+        const segmentHeight = visible ? (value / maxValue) * plotHeight : 0;
+        yCursor -= segmentHeight;
+        return {
+          ...series,
+          x,
+          y: yCursor,
+          width: barWidth,
+          height: segmentHeight,
+          opacity: visible && value > 0 ? 1 : 0,
+        };
+      });
+      const stackHeight = baseline - yCursor;
+      return {
+        key: row.date,
+        index,
+        x,
+        clipY: baseline - stackHeight,
+        clipHeight: stackHeight,
+        radius: Math.min(4, stackHeight / 2, barWidth / 2),
+        width: barWidth,
+        segments,
+        hit: {
+          x: horizontalInset + index * slot,
+          y: plotTop,
+          width: slot,
+          height: plotHeight,
+        },
+      };
+    });
+    const tickIndexes = [...new Set([0, Math.ceil((rows.length - 1) / 2), rows.length - 1])];
+    return {
+      width,
+      height,
+      plotTop,
+      baseline,
+      plotHeight,
+      rows: rowGeometry,
+      grid: [20, 54, 88, 122],
+      ticks: tickIndexes.map((index) => ({
+        key: rows[index].date,
+        index,
+        x: horizontalInset + slot * (index + 0.5),
+        y: 130,
+        dy: 12,
+        label: formatAxisDate(rows[index].date),
+      })),
+    };
+  };
+
+  const fadeMeterText = (node, nextText) => {
+    if (!node) return;
+    const pending = meterChartTextAnimations.get(node);
+    if (pending?.target === nextText) return;
+    pending?.animation?.cancel?.();
+    meterChartTextAnimations.delete(node);
+    if (node.textContent === nextText) return;
+    if (prefersReducedMeterMotion() || !node.animate || !node.textContent) {
+      node.textContent = nextText;
+      return;
+    }
+    const fadeOut = node.animate([{ opacity: 1 }, { opacity: 0.25 }], {
+      duration: 80,
+      easing: "ease-out",
+    });
+    const fadeOutRecord = { target: nextText, animation: fadeOut };
+    meterChartTextAnimations.set(node, fadeOutRecord);
+    fadeOut.onfinish = () => {
+      if (meterChartTextAnimations.get(node) !== fadeOutRecord) return;
+      node.textContent = nextText;
+      const fadeIn = node.animate([{ opacity: 0.25 }, { opacity: 1 }], {
+        duration: 140,
+        easing: "ease-out",
+      });
+      const fadeInRecord = { target: nextText, animation: fadeIn };
+      meterChartTextAnimations.set(node, fadeInRecord);
+      fadeIn.onfinish = () => {
+        if (meterChartTextAnimations.get(node) === fadeInRecord) meterChartTextAnimations.delete(node);
+      };
+    };
+  };
+
+  const setMeterOverlayVisibility = (element, visible) => {
+    if (!element) return;
+    window.clearTimeout(element.cqmVisibilityTimer);
+    if (prefersReducedMeterMotion()) {
+      element.hidden = !visible;
+      element.style.removeProperty("opacity");
+      return;
+    }
+    element.style.transition = "opacity 160ms var(--ease-basic, ease)";
+    if (visible) {
+      const wasHidden = element.hidden;
+      element.hidden = false;
+      if (wasHidden) element.style.opacity = "0";
+      window.requestAnimationFrame(() => {
+        if (!element.hidden) element.style.opacity = "1";
+      });
+      return;
+    }
+    if (element.hidden) return;
+    element.style.opacity = "0";
+    element.cqmVisibilityTimer = window.setTimeout(() => {
+      if (element.style.opacity === "0") element.hidden = true;
+    }, 170);
+  };
+
+  const patchMeterChartLegend = (legendElement, state) => {
+    const activeKeys = new Set(state.legend.map((series) => series.key));
+    const visibleCount = state.legend.filter((series) => !state.hidden.has(series.key)).length;
+    const legendRect = legendElement.getBoundingClientRect();
+    if (getComputedStyle(legendElement).position === "static") legendElement.style.position = "relative";
+    [...legendElement.children].forEach((button) => {
+      if (activeKeys.has(button.dataset.cqmSeriesKey)) return;
+      const buttonRect = button.getBoundingClientRect();
+      button.dataset.cqmRemoving = "true";
+      button.style.pointerEvents = "none";
+      if (prefersReducedMeterMotion() || !button.animate) {
+        button.remove();
+        return;
+      }
+      Object.assign(button.style, {
+        position: "absolute",
+        left: `${buttonRect.left - legendRect.left}px`,
+        top: `${buttonRect.top - legendRect.top}px`,
+        width: `${buttonRect.width}px`,
+      });
+      button.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: "ease-out" }).onfinish = () => {
+        if (button.dataset.cqmRemoving === "true") button.remove();
+      };
+    });
+    state.legend.forEach((series) => {
+      let button = [...legendElement.children].find((child) => child.dataset.cqmSeriesKey === series.key);
+      const isNew = !button;
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.className = "cqm-chart-legend-item";
+        button.dataset.cqmSeriesKey = series.key;
+        button.innerHTML = `
+          <i class="cqm-chart-legend-swatch"></i>
+          <span class="cqm-chart-legend-copy">
+            <span class="cqm-chart-legend-label"></span>
+            <strong class="cqm-chart-legend-percent"></strong>
+          </span>`;
+      }
+      if (button.dataset.cqmRemoving === "true") {
+        button.getAnimations?.().forEach((animation) => animation.cancel());
+        ["position", "left", "top", "width"].forEach((property) => button.style.removeProperty(property));
+      }
+      delete button.dataset.cqmRemoving;
+      button.style.removeProperty("pointer-events");
+      const pressed = !state.hidden.has(series.key);
+      const cannotHide = pressed && visibleCount <= 1;
+      setAttributeIfChanged(button, "aria-pressed", pressed ? "true" : "false");
+      setAttributeIfChanged(button, "aria-disabled", cannotHide ? "true" : "false");
+      setAttributeIfChanged(
+        button,
+        "aria-label",
+        t(pressed ? "chart.aria.hideSeries" : "chart.aria.showSeries", { label: series.label }),
+      );
+      button.querySelector(".cqm-chart-legend-swatch")?.style.setProperty("--cqm-series-color", series.color);
+      const label = button.querySelector(".cqm-chart-legend-label");
+      if (label && label.textContent !== series.label) label.textContent = series.label;
+      fadeMeterText(button.querySelector(".cqm-chart-legend-percent"), formatMeterPercent(series.share));
+      legendElement.appendChild(button);
+      if (isNew && !prefersReducedMeterMotion() && button.animate) {
+        button.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: 220,
+          easing: "cubic-bezier(.2, 0, 0, 1)",
+        });
+      }
+    });
+  };
+
+  const patchMeterChart = (view, rows, chartWidth, state) => {
+    const shell = meterChartShell(view);
+    if (!shell) return;
+    const svg = shell.querySelector(".cqm-meter-chart-svg");
+    const clips = svg.querySelector("[data-cqm-chart-clips]");
+    const grid = svg.querySelector("[data-cqm-chart-grid]");
+    const bars = svg.querySelector("[data-cqm-chart-bars]");
+    const hits = svg.querySelector("[data-cqm-chart-hits]");
+    const axis = svg.querySelector("[data-cqm-chart-axis]");
+    const slider = svg.querySelector(".cqm-meter-chart-slider");
+    const geometry = meterChartGeometry(rows, chartWidth, state);
+    svg.setAttribute("viewBox", `0 0 ${geometry.width} ${geometry.height}`);
+    const updates = [];
+    const removals = [];
+
+    geometry.grid.forEach((y, index) => {
+      let line = meterKeyedChild(grid, "data-grid-index", index);
+      if (!line) {
+        line = createMeterSvgElement("line", "cqm-meter-grid-line");
+        line.setAttribute("data-grid-index", String(index));
+        grid.appendChild(line);
+      }
+      queueMeterGeometry(updates, line, { x1: 0, x2: geometry.width, y1: y, y2: y });
+    });
+
+    const activeRowKeys = new Set(geometry.rows.map((row) => row.key));
+    geometry.rows.forEach((row) => {
+      const clipId = `cqm-meter-stack-${row.key.replace(/[^a-z0-9]/gi, "-")}`;
+      let clip = meterKeyedChild(clips, "data-row-key", row.key);
+      if (!clip) {
+        clip = createMeterSvgElement("clipPath");
+        clip.setAttribute("data-row-key", row.key);
+        clip.id = clipId;
+        clip.appendChild(createMeterSvgElement("rect", "cqm-meter-stack-rounded-top"));
+        clip.appendChild(createMeterSvgElement("rect", "cqm-meter-stack-square-bottom"));
+        clips.appendChild(clip);
+      }
+      delete clip.dataset.cqmRemoving;
+      const clipRect = clip.firstElementChild;
+      let clipBottom = clip.lastElementChild;
+      if (clipBottom === clipRect) {
+        clipBottom = createMeterSvgElement("rect", "cqm-meter-stack-square-bottom");
+        clip.appendChild(clipBottom);
+      }
+      queueMeterGeometry(
+        updates,
+        clipRect,
+        { x: row.x, y: row.clipY, width: row.width, height: row.clipHeight, rx: row.radius, ry: row.radius },
+        { x: row.x, y: geometry.baseline, width: row.width, height: 0, rx: 0, ry: 0 },
+      );
+      queueMeterGeometry(
+        updates,
+        clipBottom,
+        {
+          x: row.x,
+          y: row.clipY + row.radius,
+          width: row.width,
+          height: Math.max(0, row.clipHeight - row.radius),
+        },
+        { x: row.x, y: geometry.baseline, width: row.width, height: 0 },
+      );
+
+      let rowGroup = meterKeyedChild(bars, "data-row-key", row.key);
+      if (!rowGroup) {
+        rowGroup = createMeterSvgElement("g", "cqm-meter-chart-row");
+        rowGroup.setAttribute("data-row-key", row.key);
+        bars.appendChild(rowGroup);
+      }
+      delete rowGroup.dataset.cqmRemoving;
+      rowGroup.setAttribute("clip-path", `url(#${clipId})`);
+      const activeSeries = new Set(row.segments.map((segment) => segment.key));
+      row.segments.forEach((segment) => {
+        let rect = meterKeyedChild(rowGroup, "data-series", segment.key);
+        if (!rect) {
+          rect = createMeterSvgElement("rect", "cqm-meter-chart-bar-segment");
+          rect.setAttribute("data-series", segment.key);
+          rowGroup.appendChild(rect);
+        }
+        delete rect.dataset.cqmRemoving;
+        delete rect.dataset.exiting;
+        rect.dataset.visible = segment.opacity > 0 ? "true" : "false";
+        rect.dataset.index = String(row.index);
+        rect.style.setProperty("--cqm-series-color", segment.color);
+        queueMeterGeometry(
+          updates,
+          rect,
+          {
+            x: segment.x,
+            y: segment.y,
+            width: segment.width,
+            height: segment.height,
+            opacity: segment.opacity,
+          },
+          { x: segment.x, y: geometry.baseline, width: segment.width, height: 0, opacity: 0 },
+        );
+        rowGroup.appendChild(rect);
+      });
+      [...rowGroup.children].forEach((rect) => {
+        if (activeSeries.has(rect.dataset.series)) return;
+        rect.dataset.cqmRemoving = "true";
+        rect.dataset.exiting = "true";
+        queueMeterGeometry(updates, rect, { y: geometry.baseline, height: 0, opacity: 0 });
+        removals.push(rect);
+      });
+
+      let hit = meterKeyedChild(hits, "data-row-key", row.key);
+      if (!hit) {
+        hit = createMeterSvgElement("rect", "cqm-meter-chart-hit");
+        hit.setAttribute("data-row-key", row.key);
+        hits.appendChild(hit);
+      }
+      delete hit.dataset.cqmRemoving;
+      hit.style.removeProperty("pointer-events");
+      hit.dataset.index = String(row.index);
+      hit.dataset.bandX = String(row.hit.x);
+      hit.dataset.bandWidth = String(row.hit.width);
+      hit.dataset.bandY = String(row.hit.y);
+      hit.dataset.bandHeight = String(row.hit.height);
+      queueMeterGeometry(updates, hit, row.hit);
+    });
+
+    [...bars.children].forEach((rowGroup) => {
+      if (activeRowKeys.has(rowGroup.dataset.rowKey)) return;
+      rowGroup.dataset.cqmRemoving = "true";
+      [...rowGroup.children].forEach((rect) => {
+        rect.dataset.exiting = "true";
+        queueMeterGeometry(updates, rect, { y: geometry.baseline, height: 0, opacity: 0 });
+      });
+      removals.push(rowGroup);
+    });
+    [...clips.children].forEach((clip) => {
+      if (activeRowKeys.has(clip.dataset.rowKey)) return;
+      clip.dataset.cqmRemoving = "true";
+      [...clip.children].forEach((rect) =>
+        queueMeterGeometry(updates, rect, { y: geometry.baseline, height: 0, rx: 0, ry: 0 }),
+      );
+      removals.push(clip);
+    });
+    [...hits.children].forEach((hit) => {
+      if (activeRowKeys.has(hit.dataset.rowKey)) return;
+      hit.dataset.cqmRemoving = "true";
+      hit.style.pointerEvents = "none";
+      removals.push(hit);
+    });
+
+    const activeTickKeys = new Set(geometry.ticks.map((tick) => tick.key));
+    geometry.ticks.forEach((tick) => {
+      let text = meterKeyedChild(axis, "data-tick-key", tick.key);
+      if (!text) {
+        text = createMeterSvgElement("text", "cqm-meter-axis-label");
+        text.setAttribute("data-tick-key", tick.key);
+        text.setAttribute("opacity", "0");
+        axis.appendChild(text);
+      }
+      delete text.dataset.cqmRemoving;
+      text.textContent = tick.label;
+      text.setAttribute("text-anchor", "middle");
+      queueMeterGeometry(updates, text, { x: tick.x, y: tick.y, dy: tick.dy, opacity: 1 });
+      axis.appendChild(text);
+    });
+    [...axis.children].forEach((text) => {
+      if (activeTickKeys.has(text.dataset.tickKey)) return;
+      text.dataset.cqmRemoving = "true";
+      queueMeterGeometry(updates, text, { opacity: 0 });
+      removals.push(text);
+    });
+
+    setAttributeIfChanged(slider, "aria-label", t("chart.aria.slider"));
+    setAttributeIfChanged(slider, "aria-valuemax", String(rows.length));
+    queueMeterGeometry(updates, slider, {
+      x: 0,
+      y: geometry.plotTop,
+      width: geometry.width,
+      height: geometry.plotHeight,
+    });
+
+    const actions = shell.querySelector(".cqm-meter-chart-actions");
+    const overview = actions.querySelector("[data-cqm-chart-overview]");
+    if (overview.textContent !== t("chart.allDates")) overview.textContent = t("chart.allDates");
+    setMeterOverlayVisibility(actions, meterChartPinnedIndex != null);
+    const metadata = shell.querySelector(".cqm-chart-metadata-note");
+    if (metadata.textContent !== t("chart.dataMismatch")) metadata.textContent = t("chart.dataMismatch");
+    setMeterOverlayVisibility(metadata, Boolean(state.selectedSummary?.hasMismatch));
+    const selectionNote = shell.querySelector(".cqm-chart-selection-note");
+    if (selectionNote.textContent !== t("chart.pendingDay")) selectionNote.textContent = t("chart.pendingDay");
+    patchMeterChartLegend(shell.querySelector(".cqm-meter-chart-legend"), state);
+    runMeterGeometryAnimation(updates, removals);
   };
 
   const formatMeterMetricValue = (value) => {
+    if (value == null) return "—";
     if (meterChartMetric === CHART_METRICS.tokens) return fmtNum(value);
-    if (meterChartMetric === CHART_METRICS.usd) return fmtUsd(value / CONFIG.USD_PER_CREDIT);
+    if (meterChartMetric === CHART_METRICS.usd) return fmtUsd(value);
     if (meterChartMetric === CHART_METRICS.turns) return String(Math.round(value));
     return fmtCredits(value, value >= 100 ? 0 : 1);
   };
@@ -1848,7 +2708,15 @@
   const formatAxisDate = (dateKey) => {
     const date = new Date(`${dateKey}T12:00:00`);
     try {
-      return new Intl.DateTimeFormat(getPageLocale(), { month: "numeric", day: "numeric" }).format(date);
+      return new Intl.DateTimeFormat(getPageLocale(), { month: "short", day: "numeric" }).format(date);
+    } catch {
+      return dateKey;
+    }
+  };
+
+  const formatPeriodDate = (dateKey) => {
+    try {
+      return new Intl.DateTimeFormat(getPageLocale(), { year: "numeric", month: "numeric", day: "numeric" }).format(new Date(`${dateKey}T12:00:00`));
     } catch {
       return dateKey;
     }
@@ -1873,10 +2741,11 @@
   };
 
   const handleMeterChartPointerMove = (event) => {
+    if (meterChartPinnedIndex != null) return;
     const bar = event.target.closest?.(".cqm-meter-chart-bar-segment, .cqm-meter-chart-hit");
     const view = document.getElementById(CHART_IDS.view);
     if (!bar || !view?.contains(bar)) {
-      hideMeterChartTooltip();
+      handleMeterChartPointerLeave();
       return;
     }
     const row = renderedMeterChartRows[Number(bar.dataset.index)];
@@ -1884,8 +2753,82 @@
       hideMeterChartTooltip();
       return;
     }
+    const index = Number(bar.dataset.index);
+    meterChartHoverIndex = index;
+    meterChartFocusIndex = index + 1;
+    updateMeterChartSummaryPreview(index);
     showMeterChartHoverBand(view, bar);
-    showMeterChartTooltip(view, row, event.clientX, event.clientY);
+    showMeterChartTooltip(view, row, index, event.clientX, event.clientY);
+  };
+
+  const handleMeterChartPointerLeave = () => {
+    if (meterChartPinnedIndex != null) return;
+    meterChartHoverIndex = null;
+    meterChartFocusIndex = 0;
+    updateMeterChartSummaryPreview(null);
+    hideMeterChartTooltip(false);
+  };
+
+  const updateMeterChartSummaryPreview = (index) => {
+    const view = document.getElementById(CHART_IDS.view);
+    if (!view) return;
+    const row = index == null ? null : renderedMeterChartRows[index];
+    const grouping = currentMeterChartGrouping(renderedMeterChartRows);
+    const summary = row?.rawRow
+      ? domain.chartSummary([row.rawRow], meterChartMetric, grouping)
+      : { series: [], total: 0, reportedTotal: 0 };
+    const byKey = new Map((summary.series || []).map((series) => [series.key, series]));
+    const total = n(summary.total);
+    view.querySelectorAll("[data-cqm-series-key]").forEach((button) => {
+      const key = button.dataset.cqmSeriesKey;
+      const rangeSeries = renderedMeterChartLegend.find((series) => series.key === key);
+      const previewSeries = byKey.get(key);
+      const missing = Boolean(row?.missing);
+      const value = missing ? null : index == null ? rangeSeries?.value : n(previewSeries?.value);
+      const share = missing ? null : index == null ? rangeSeries?.share : total > 0 ? value / total : 0;
+      const valueNode = button.querySelector(".cqm-chart-legend-value");
+      const percentNode = button.querySelector(".cqm-chart-legend-percent");
+      const valueText = formatMeterMetricValue(value);
+      const percentText = formatMeterPercent(share);
+      fadeMeterText(valueNode, valueText);
+      fadeMeterText(percentNode, percentText);
+    });
+    setMeterPeriodLabel(row ? index : null);
+    const slider = view.querySelector(".cqm-meter-chart-slider");
+    if (slider) {
+      const sliderValue = row ? index + 1 : 0;
+      setAttributeIfChanged(slider, "aria-valuenow", String(sliderValue));
+      setAttributeIfChanged(slider,
+        "aria-valuetext",
+        row
+          ? row.missing
+            ? `${formatTooltipDate(row.date)}, ${t("chart.pendingDay")}`
+            : t("chart.aria.day", {
+                date: formatTooltipDate(row.date),
+                total: formatMeterMetricValue(n(summary.reportedTotal)),
+              })
+          : t("chart.aria.overview"),
+      );
+    }
+    const note = view.querySelector(".cqm-chart-selection-note");
+    setMeterOverlayVisibility(note, Boolean(row?.missing));
+    const actions = view.querySelector(".cqm-meter-chart-actions");
+    setMeterOverlayVisibility(actions, meterChartPinnedIndex != null);
+    const metadata = view.querySelector(".cqm-chart-metadata-note");
+    setMeterOverlayVisibility(metadata, Boolean(summary.hasMismatch));
+    updateMeterChartBarEmphasis(index);
+  };
+
+  const updateMeterChartBarEmphasis = (index) => {
+    const view = document.getElementById(CHART_IDS.view);
+    if (!view) return;
+    view.querySelectorAll(".cqm-meter-chart-row").forEach((row) => {
+      const rowIndex = Number(row.querySelector("[data-index]")?.dataset.index);
+      row.style.transition = prefersReducedMeterMotion()
+        ? "none"
+        : "opacity var(--transition-duration-relaxed, 300ms) var(--ease-basic, cubic-bezier(.2, 0, 0, 1))";
+      row.style.opacity = index == null || rowIndex === index ? "1" : "0.4";
+    });
   };
 
   const showMeterChartHoverBand = (view, bar) => {
@@ -1899,53 +2842,249 @@
     band.setAttribute("y", hit.dataset.bandY || "0");
     band.setAttribute("width", hit.dataset.bandWidth || hit.getAttribute("width") || "0");
     band.setAttribute("height", hit.dataset.bandHeight || hit.getAttribute("height") || "0");
-    band.removeAttribute("hidden");
+    band.setAttribute("hidden", "");
   };
 
-  const showMeterChartTooltip = (view, row, clientX, clientY) => {
+  const showMeterChartTooltip = (view, row, index, clientX, clientY) => {
     const tooltip = view.querySelector(".cqm-meter-chart-tooltip");
     if (!tooltip) return;
-    const tooltipKey = `${meterChartMetric}:${row.date}:${row.endDate || ""}`;
-    if (tooltip.dataset.key !== tooltipKey) {
-      tooltip.dataset.key = tooltipKey;
-      setHtmlIfChanged(tooltip, renderMeterChartTooltip(row));
+    const grouping = currentMeterChartGrouping(renderedMeterChartRows);
+    const tooltipKey = `${meterChartMetric}:${grouping}:${row.date}:${row.endDate || ""}`;
+    if (tooltip.dataset.key === tooltipKey && tooltip.dataset.pendingKey && tooltip.dataset.pendingKey !== tooltipKey) {
+      tooltip.cqmContentAnimation?.cancel?.();
+      delete tooltip.dataset.contentToken;
+      delete tooltip.dataset.pendingKey;
     }
+    if (tooltip.dataset.key !== tooltipKey && tooltip.dataset.pendingKey !== tooltipKey) {
+      const nextHtml = renderMeterChartTooltip(row, grouping);
+      const commit = () => {
+        tooltip.dataset.key = tooltipKey;
+        delete tooltip.dataset.contentToken;
+        delete tooltip.dataset.pendingKey;
+        setHtmlIfChanged(tooltip, nextHtml);
+      };
+      const visible = !tooltip.hidden;
+      if (visible && !prefersReducedMeterMotion() && tooltip.animate) {
+        const contentToken = `${tooltipKey}:${performance.now()}`;
+        tooltip.dataset.contentToken = contentToken;
+        tooltip.dataset.pendingKey = tooltipKey;
+        tooltip.cqmContentAnimation?.cancel?.();
+        const fadeOut = tooltip.animate([{ opacity: 1 }, { opacity: 0.55 }], {
+          duration: 70,
+          easing: "ease-out",
+        });
+        tooltip.cqmContentAnimation = fadeOut;
+        fadeOut.onfinish = () => {
+          if (tooltip.dataset.contentToken !== contentToken) return;
+          commit();
+          tooltip.cqmContentAnimation = tooltip.animate([{ opacity: 0.55 }, { opacity: 1 }], {
+            duration: 110,
+            easing: "ease-out",
+          });
+        };
+      } else {
+        commit();
+      }
+    }
+    tooltip.dataset.index = String(index);
+    window.clearTimeout(tooltip.cqmHideTimer);
+    tooltip.style.transition = prefersReducedMeterMotion()
+      ? "none"
+      : "opacity 160ms var(--ease-basic, ease), transform 220ms var(--ease-basic, cubic-bezier(.2, 0, 0, 1))";
+    const wasHidden = tooltip.hidden;
     tooltip.hidden = false;
+    if (wasHidden && !prefersReducedMeterMotion()) tooltip.style.opacity = "0";
     const rect = view.getBoundingClientRect();
     const tooltipRect = tooltip.getBoundingClientRect();
     const x = Math.min(Math.max(16, clientX - rect.left + 16), Math.max(16, rect.width - tooltipRect.width - 16));
     const y = Math.min(Math.max(16, clientY - rect.top - tooltipRect.height - 12), Math.max(16, rect.height - tooltipRect.height - 16));
     tooltip.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    window.requestAnimationFrame(() => {
+      if (!tooltip.hidden) tooltip.style.opacity = "1";
+    });
   };
 
-  const renderMeterChartTooltip = (row) => {
-    const seriesRows = meterMetricSeries(row).filter((series) => series.value > 0);
-    const total = meterMetricTotal(row);
+  const renderMeterChartTooltip = (row, grouping = currentMeterChartGrouping(renderedMeterChartRows)) => {
+    if (row.missing) {
+      return `<div class="cqm-chart-tooltip-date cqm-meter-tooltip-title">${escapeHtml(formatMeterTooltipDate(row))}</div><div>${escapeHtml(t("chart.pendingDay"))}</div>`;
+    }
+    const summary = domain.chartSummary([row.rawRow], meterChartMetric, grouping);
+    const metaByKey = new Map(renderedMeterChartLegend.map((series) => [series.key, series]));
+    const seriesRows = summary.series.map((series, index) => ({
+      ...series,
+      label: meterSeriesLabel(series),
+      color: metaByKey.get(series.key)?.color || meterSeriesPalette[index % meterSeriesPalette.length],
+    }));
+    const reportedTotal = n(summary.reportedTotal);
     return `
-      <div class="cqm-meter-tooltip-title">${escapeHtml(formatMeterTooltipDate(row))}</div>
+      <div class="cqm-chart-tooltip-date cqm-meter-tooltip-title">${escapeHtml(formatMeterTooltipDate(row))}</div>
       <div class="cqm-meter-tooltip-grid">
         ${seriesRows
           .map(
             (series) => `
-              <span><i style="--cqm-series-color:${escapeHtml(series.color)}"></i>${escapeHtml(series.label)}</span>
-              <strong>${escapeHtml(formatMeterMetricValue(series.value))}</strong>
+              <div class="cqm-chart-tooltip-row" data-hidden="${
+                normalizedMeterHiddenSeries(renderedMeterChartLegend.map((item) => item.key), grouping).has(series.key)
+                  ? "true"
+                  : "false"
+              }">
+                <i class="cqm-chart-legend-swatch" style="--cqm-series-color:${escapeHtml(series.color)}"></i>
+                <span class="cqm-chart-tooltip-label">${escapeHtml(series.label)}</span>
+                <strong class="cqm-chart-tooltip-value">${escapeHtml(formatMeterMetricValue(series.value))}</strong>
+                <span class="cqm-chart-tooltip-percent">${escapeHtml(formatMeterPercent(series.share))}</span>
+              </div>
             `,
           )
           .join("")}
-        ${
-          seriesRows.length > 1
-            ? `<span class="cqm-meter-tooltip-total">${escapeHtml(t("table.total"))}</span><strong class="cqm-meter-tooltip-total">${escapeHtml(formatMeterMetricValue(total))}</strong>`
-            : ""
-        }
+        <div class="cqm-chart-tooltip-row cqm-chart-tooltip-total cqm-meter-tooltip-total">
+          <span class="cqm-chart-tooltip-label">${escapeHtml(t("table.total"))}</span>
+          <strong class="cqm-chart-tooltip-value">${escapeHtml(formatMeterMetricValue(reportedTotal))}</strong>
+          <span class="cqm-chart-tooltip-percent">${reportedTotal > 0 ? "100%" : "0%"}</span>
+        </div>
       </div>
     `;
   };
 
-  const hideMeterChartTooltip = () => {
+  const hideMeterChartTooltip = (force = false) => {
+    if (!force && meterChartPinnedIndex != null) return;
     const tooltip = document.querySelector(`#${CHART_IDS.view} .cqm-meter-chart-tooltip`);
-    if (tooltip) tooltip.hidden = true;
+    if (tooltip) {
+      window.clearTimeout(tooltip.cqmHideTimer);
+      delete tooltip.dataset.contentToken;
+      delete tooltip.dataset.pendingKey;
+      tooltip.cqmContentAnimation?.cancel?.();
+      if (prefersReducedMeterMotion() || force) {
+        tooltip.hidden = true;
+        tooltip.style.removeProperty("opacity");
+      } else {
+        tooltip.style.opacity = "0";
+        tooltip.cqmHideTimer = window.setTimeout(() => {
+          if (tooltip.style.opacity === "0") tooltip.hidden = true;
+        }, 170);
+      }
+    }
     const band = document.querySelector(`#${CHART_IDS.view} .cqm-meter-chart-hover-band`);
     if (band) band.setAttribute("hidden", "");
+  };
+
+  const showMeterTooltipForIndex = (index) => {
+    const view = document.getElementById(CHART_IDS.view);
+    const row = renderedMeterChartRows[index];
+    const hit = view?.querySelector(`.cqm-meter-chart-hit[data-index="${index}"]`);
+    if (!view || !row || !hit) return;
+    showMeterChartHoverBand(view, hit);
+    const hitRect = hit.getBoundingClientRect();
+    showMeterChartTooltip(view, row, index, hitRect.left + hitRect.width / 2, hitRect.top + 4);
+  };
+
+  const restoreMeterChartSelection = (view = document.getElementById(CHART_IDS.view)) => {
+    if (!view) return;
+    const selectedIndex = meterChartPinnedIndex;
+    setDatasetIfChanged(view, "cqmChartPinned", selectedIndex == null ? "false" : "true");
+    view.querySelectorAll("[data-index]").forEach((element) => {
+      setDatasetIfChanged(element, "selected", Number(element.dataset.index) === selectedIndex ? "true" : "false");
+    });
+    const slider = view.querySelector(".cqm-meter-chart-slider");
+    if (slider) {
+      const value = selectedIndex == null ? 0 : selectedIndex + 1;
+      slider.setAttribute("aria-valuenow", String(value));
+    }
+    if (selectedIndex != null) {
+      const hit = view.querySelector(`.cqm-meter-chart-hit[data-index="${selectedIndex}"]`);
+      if (hit) showMeterChartHoverBand(view, hit);
+    }
+    updateMeterChartBarEmphasis(selectedIndex ?? meterChartHoverIndex);
+  };
+
+  const selectMeterChartValue = (value, { focus = true, showTooltip = true } = {}) => {
+    const nextValue = Math.max(0, Math.min(renderedMeterChartRows.length, Number(value) || 0));
+    meterChartFocusIndex = nextValue;
+    meterChartPinnedIndex = nextValue === 0 ? null : nextValue - 1;
+    meterChartHoverIndex = null;
+    hideMeterChartTooltip(false);
+    const view = document.getElementById(CHART_IDS.view);
+    updateMeterChartSummaryPreview(meterChartPinnedIndex);
+    restoreMeterChartSelection(view);
+    const slider = view?.querySelector(".cqm-meter-chart-slider");
+    if (focus) slider?.focus({ preventScroll: true });
+    if (showTooltip && meterChartPinnedIndex != null) showMeterTooltipForIndex(meterChartPinnedIndex);
+  };
+
+  const toggleMeterChartSeries = (seriesKey) => {
+    const grouping = currentMeterChartGrouping(renderedMeterChartRows);
+    const allKeys = renderedMeterChartLegend.map((series) => series.key);
+    const hidden = normalizedMeterHiddenSeries(allKeys, grouping);
+    if (hidden.has(seriesKey)) {
+      hidden.delete(seriesKey);
+    } else if (allKeys.filter((key) => !hidden.has(key)).length > 1) {
+      hidden.add(seriesKey);
+    } else {
+      return;
+    }
+    hideMeterChartTooltip(true);
+    const view = document.getElementById(CHART_IDS.view);
+    if (view) delete view.dataset.chartKey;
+    renderMeterChartView();
+    const nextButton = [...(document.querySelectorAll(`#${CHART_IDS.view} [data-cqm-series-key]`) || [])].find(
+      (button) => button.dataset.cqmSeriesKey === seriesKey,
+    );
+    nextButton?.focus({ preventScroll: true });
+  };
+
+  const handleMeterChartClick = (event) => {
+    const overview = event.target.closest?.("[data-cqm-chart-overview]");
+    if (overview) {
+      event.preventDefault();
+      selectMeterChartValue(0);
+      return;
+    }
+    const legendItem = event.target.closest?.("[data-cqm-series-key]");
+    if (legendItem) {
+      event.preventDefault();
+      toggleMeterChartSeries(legendItem.dataset.cqmSeriesKey);
+      return;
+    }
+    const bar = event.target.closest?.(".cqm-meter-chart-bar-segment, .cqm-meter-chart-hit");
+    if (!bar) return;
+    event.preventDefault();
+    const nextIndex = Number(bar.dataset.index);
+    selectMeterChartValue(meterChartPinnedIndex === nextIndex ? 0 : nextIndex + 1);
+  };
+
+  const handleMeterChartKeyDown = (event) => {
+    const slider = event.target.closest?.(".cqm-meter-chart-slider");
+    if (!slider) {
+      if (event.key === "Escape" && meterChartPinnedIndex != null) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectMeterChartValue(0, { focus: false, showTooltip: false });
+      }
+      return;
+    }
+    const current = meterChartPinnedIndex == null ? meterChartFocusIndex : meterChartPinnedIndex + 1;
+    let next = current;
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") next = Math.min(renderedMeterChartRows.length, current + 1);
+    else if (event.key === "ArrowLeft" || event.key === "ArrowDown") next = Math.max(0, current - 1);
+    else if (event.key === "Home" || event.key === "Escape") next = 0;
+    else if (event.key === "End") next = renderedMeterChartRows.length;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectMeterChartValue(next);
+  };
+
+  const handleMeterChartFocusIn = (event) => {
+    if (event.target.closest?.("[data-cqm-series-key]")) {
+      hideMeterChartTooltip(true);
+      return;
+    }
+    if (event.target.closest?.(".cqm-meter-chart-slider") && meterChartPinnedIndex != null) {
+      showMeterTooltipForIndex(meterChartPinnedIndex);
+    }
+  };
+
+  const handleMeterChartFocusOut = (event) => {
+    if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return;
+    hideMeterChartTooltip(meterChartPinnedIndex == null);
   };
 
   const ensureChromeRuntimeListener = () => {
@@ -2125,6 +3264,8 @@
 
     try {
       latestReport = await reportService.refreshReport();
+      passiveReportError = null;
+      failedPassiveScopeKey = null;
       renderReport(latestReport);
       renderMeterChartView();
       if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
@@ -2440,11 +3581,13 @@
 
   const ensurePassiveReport = ({ allowRefresh = true } = {}) => {
     if (latestReport) {
+      if (allowRefresh && !reportCoversChartRange(latestReport)) return refreshPassiveReport({ force: true });
       if (allowRefresh) refreshPassiveReport();
       return Promise.resolve(latestReport);
     }
     return hydrateCachedReport().then((cached) => {
       if (cached) {
+        if (allowRefresh && !reportCoversChartRange(cached)) return refreshPassiveReport({ force: true });
         if (allowRefresh) refreshPassiveReport();
         return cached;
       }
@@ -2472,11 +3615,14 @@
 
   const refreshPassiveReport = ({ force = false } = {}) => {
     if (isRunning || !isAnalyticsRoute()) return Promise.resolve(latestReport);
+    const requestedScopeKey = meterChartScope().key;
+    if (failedPassiveScopeKey === requestedScopeKey) return Promise.resolve(latestReport);
     const now = Date.now();
     if (!force && now - lastPassiveRefreshAt < PASSIVE_REFRESH_MIN_INTERVAL_MS) {
       return Promise.resolve(latestReport);
     }
     if (!passiveReportPromise) {
+      passiveReportError = null;
       lastPassiveRefreshAt = now;
       passiveReportPromise = reportService
         .refreshReport()
@@ -2486,9 +3632,17 @@
           if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
           return report;
         })
-        .catch(() => latestReport)
+        .catch((error) => {
+          passiveReportError = error.message || String(error);
+          failedPassiveScopeKey = requestedScopeKey;
+          if (usageChartMode === CHART_MODES.meter) renderMeterChartView();
+          return latestReport;
+        })
         .finally(() => {
           passiveReportPromise = null;
+          if (usageChartMode === CHART_MODES.meter && isAnalyticsRoute() && !reportCoversChartRange(latestReport) && failedPassiveScopeKey !== meterChartScope().key) {
+            refreshPassiveReport({ force: true });
+          }
         });
     }
     return passiveReportPromise;
@@ -2922,7 +4076,23 @@
     patch("replaceState");
     window.addEventListener("popstate", notify);
     window.__codexMeterMutationObserver?.disconnect?.();
-    window.__codexMeterMutationObserver = null;
+    const observer = new MutationObserver((records) => {
+      const changed = records.some((record) => {
+        if (isCodexMeterOwned(record.target)) return false;
+        if (record.type === "attributes") return true;
+        return [...record.addedNodes, ...record.removedNodes].some((node) =>
+          node.nodeType === Node.ELEMENT_NODE && !isCodexMeterOwned(node),
+        );
+      });
+      if (changed) notify();
+    });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-pressed", "aria-valuetext"],
+    });
+    window.__codexMeterMutationObserver = observer;
     window.clearInterval(window.__codexMeterRouteInterval);
     window.__codexMeterRouteInterval = window.setInterval(poll, 1200);
     window.addEventListener("visibilitychange", poll);
@@ -2971,15 +4141,8 @@
   const isOfficialAnalyticsControlTarget = (target) => {
     const element = target instanceof Element ? target : null;
     if (!element || isCodexMeterOwned(element)) return false;
-    const action = element.closest("button,[role='combobox'],[role='option'],[role='menuitemradio']");
-    if (!action || isCodexMeterOwned(action)) return false;
-    if (action.closest("[role='dialog'], [data-radix-popper-content-wrapper]")) return true;
-    if (action.matches("button[role='combobox']")) return true;
-    if (action.getAttribute("role") === "option") return true;
-    const rangeGroup = action.parentElement;
-    if (!rangeGroup) return false;
-    const buttons = [...rangeGroup.children].filter((child) => child.matches?.("button"));
-    return buttons.length >= 3 && buttons.slice(0, 3).some((button) => button.getAttribute("aria-haspopup") === "dialog");
+    const mount = usagePage.findMount();
+    return Boolean(mount?.section.contains(element));
   };
 
   const scheduleUsageChartControlSync = () => {

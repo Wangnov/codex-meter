@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const { CONFIG, DEFAULT_SETTINGS, ROUTES } = window.CodexMeterConfig;
+  const { CONFIG, DEFAULT_SETTINGS, ROUTES, isAnalyticsRoute } = window.CodexMeterConfig;
   const domain = window.CodexMeterDomain;
   const reportRepository = window.CodexMeterReportRepository;
 
@@ -20,11 +20,11 @@
       settings: {
         pageButton: {
           title: "页面内按钮",
-          hint: "在使用详情旁显示 Codex Meter 入口。",
+          hint: "在用量历史记录旁显示 Codex Meter 入口。",
         },
         chartControls: {
           title: "图表控制",
-          hint: "在官方图表旁显示 Meter 切换和指标菜单。",
+          hint: "在用量历史记录图表中显示 Meter 切换和指标菜单。",
         },
       },
       chart: {
@@ -42,7 +42,7 @@
         saved: "设置已同步。",
         noSnapshot: "还没有本地快照。",
         updated: "最近快照：{time}",
-        openFirst: "请先切到 ChatGPT Codex analytics 标签页。",
+        openFirst: "请先打开 ChatGPT 的用量历史记录分析页。",
         reading: "正在读取当前页面数据...",
         noResponse: "页面没有响应",
         cleared: "本地快照已清空。",
@@ -66,11 +66,11 @@
       settings: {
         pageButton: {
           title: "In-page button",
-          hint: "Show the Codex Meter entry beside usage details.",
+          hint: "Show the Codex Meter entry beside Usage history.",
         },
         chartControls: {
           title: "Chart controls",
-          hint: "Show the Meter switch and metric menu beside the official chart.",
+          hint: "Show the Meter switch and metric menu in the Usage history chart.",
         },
       },
       chart: {
@@ -88,7 +88,7 @@
         saved: "Settings synced.",
         noSnapshot: "No local snapshot yet.",
         updated: "Latest snapshot: {time}",
-        openFirst: "Switch to the ChatGPT Codex analytics tab first.",
+        openFirst: "Open the ChatGPT Usage history analytics page first.",
         reading: "Reading data from the current page...",
         noResponse: "The page did not respond",
         cleared: "Local snapshots cleared.",
@@ -111,6 +111,23 @@
     "zh-hans": "zh-CN",
     "zh-hans-cn": "zh-CN",
   };
+
+  const CHATGPT_THEME_PROPERTIES = [
+    "--color-surface",
+    "--color-surface-canvas",
+    "--color-surface-elevated-secondary",
+    "--color-surface-secondary",
+    "--color-surface-tertiary",
+    "--color-text",
+    "--color-text-primary",
+    "--color-text-secondary",
+    "--color-text-tertiary",
+    "--color-text-inverse",
+    "--color-border-strong",
+    "--color-border-subtle",
+    "--color-token-border-default",
+    "--segmented-control-background",
+  ];
 
   const normalizeLocale = (locale) => {
     const normalized = String(locale || "").trim().replaceAll("_", "-").toLowerCase();
@@ -214,10 +231,43 @@
     return tabs[0] || null;
   };
 
+  const syncChatGptTheme = async () => {
+    const tab = await activeTab();
+    if (!tab?.id) return;
+
+    try {
+      if (new URL(tab.url).origin !== ROUTES.analyticsOrigin) return;
+    } catch {
+      return;
+    }
+
+    const [{ result } = {}] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (propertyNames) => {
+        const styles = getComputedStyle(document.documentElement);
+        return {
+          colorScheme: styles.colorScheme,
+          variables: Object.fromEntries(
+            propertyNames
+              .map((name) => [name, styles.getPropertyValue(name).trim()])
+              .filter(([, value]) => value),
+          ),
+        };
+      },
+      args: [CHATGPT_THEME_PROPERTIES],
+    });
+
+    for (const [name, value] of Object.entries(result?.variables || {})) {
+      document.documentElement.style.setProperty(name, value);
+    }
+    if (result?.colorScheme) {
+      document.documentElement.style.colorScheme = result.colorScheme;
+    }
+  };
+
   const isAnalyticsUrl = (url) => {
     try {
-      const parsed = new URL(url);
-      return parsed.origin === ROUTES.analyticsOrigin && parsed.pathname === ROUTES.analyticsPath;
+      return isAnalyticsRoute(new URL(url));
     } catch {
       return false;
     }
@@ -267,6 +317,7 @@
         "shared/config.js",
         "domain/usage-domain.js",
         "infrastructure/chatgpt-client.js",
+        "infrastructure/usage-page.js",
         "infrastructure/report-repository.js",
         "application/report-service.js",
         "content.js",
@@ -336,6 +387,7 @@
   $("#clearHistory").addEventListener("click", clearHistory);
 
   decorateStaticContent();
+  syncChatGptTheme().catch(() => {});
   loadState().catch((error) => {
     setStatus(error.message || String(error), "error");
   });

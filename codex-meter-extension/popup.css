@@ -3,24 +3,62 @@
 }
 
 :root {
-  --cqc-bg: #000;
-  --cqc-card: #212121;
-  --cqc-card-hover: #303030;
-  --cqc-border: rgba(255, 255, 255, 0.08);
-  --cqc-border-strong: rgba(255, 255, 255, 0.18);
-  --cqc-text: #fff;
-  --cqc-text-secondary: #f3f3f3;
-  --cqc-text-tertiary: #afafaf;
-  --cqc-text-inverted: #0d0d0d;
-  --cqc-primary: #f9f9f9;
-  --cqc-warning-bg: #3b2417;
-  --cqc-warning-text: #ffb07a;
-  --cqc-subtle-surface: rgba(255, 255, 255, 0.04);
-  --cqc-hover-surface: rgba(255, 255, 255, 0.08);
-  --cqc-radius-card: 18px;
-  --cqc-radius-control: 9999px;
+  color-scheme: light;
+  --color-surface: #fcfcfc;
+  --color-surface-canvas: color-mix(in srgb, #000 2%, #fcfcfc);
+  --color-surface-elevated-secondary: #fff;
+  --color-surface-secondary: #fcfcfc;
+  --color-surface-tertiary: #f9f9f9;
+  --color-text: #0d0d0d;
+  --color-text-primary: #0d0d0d;
+  --color-text-secondary: #5d5d5d;
+  --color-text-tertiary: #8f8f8f;
+  --color-text-inverse: #fff;
+  --color-border-strong: #00000026;
+  --color-border-subtle: #0000000d;
+  --color-token-border-default: #0000001a;
+  --segmented-control-background: #ededed;
+  --cqc-bg: var(--color-surface-canvas);
+  --cqc-card: var(--color-surface-elevated-secondary);
+  --cqc-card-hover: var(--color-surface-tertiary);
+  --cqc-border: var(--color-border-subtle);
+  --cqc-border-strong: var(--color-border-strong);
+  --cqc-control-border: var(--color-token-border-default);
+  --cqc-text: var(--color-text);
+  --cqc-text-secondary: var(--color-text-secondary);
+  --cqc-text-tertiary: var(--color-text-tertiary);
+  --cqc-text-inverted: var(--color-text-inverse);
+  --cqc-primary: var(--color-text-primary);
+  --cqc-primary-hover: color-mix(in srgb, var(--cqc-primary) 86%, var(--cqc-card));
+  --cqc-warning-bg: color-mix(in srgb, #f97316 12%, var(--cqc-card));
+  --cqc-warning-text: color-mix(in srgb, #f97316 72%, var(--cqc-text));
+  --cqc-subtle-surface: var(--color-surface-secondary);
+  --cqc-hover-surface: var(--color-surface-tertiary);
+  --cqc-segmented-surface: var(--segmented-control-background);
+  --cqc-radius-card: 12px;
+  --cqc-radius-control: 10px;
   --cqc-font: -apple-system-body, ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
   --cqc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-surface: #212121;
+    --color-surface-canvas: #171717;
+    --color-surface-elevated-secondary: #2f2f2f;
+    --color-surface-secondary: #2a2a2a;
+    --color-surface-tertiary: #303030;
+    --color-text: #f2f2f2;
+    --color-text-primary: #f2f2f2;
+    --color-text-secondary: #b4b4b4;
+    --color-text-tertiary: #8f8f8f;
+    --color-text-inverse: #0d0d0d;
+    --color-border-strong: #ffffff26;
+    --color-border-subtle: #ffffff0d;
+    --color-token-border-default: #ffffff1a;
+    --segmented-control-background: #303030;
+  }
 }
 
 html,
@@ -46,7 +84,7 @@ button {
 
 .popup {
   min-height: 100vh;
-  padding: 18px 24px 16px;
+  padding: 16px 20px;
 }
 
 .cqc-icon {
@@ -75,9 +113,9 @@ button {
   width: 36px;
   height: 36px;
   place-items: center;
-  border: 1px solid var(--cqc-border-strong);
+  border: 1px solid var(--cqc-control-border);
   border-radius: var(--cqc-radius-control);
-  background: transparent;
+  background: var(--cqc-card);
   color: var(--cqc-text);
 }
 
@@ -105,7 +143,7 @@ button {
 
 .cqc-subtitle {
   margin-top: 2px;
-  color: var(--cqc-text-tertiary);
+  color: var(--cqc-text-secondary);
   font-size: 14px;
   line-height: 20px;
 }
@@ -119,7 +157,7 @@ button {
   padding: 12px 16px;
   border: 1px solid var(--cqc-border);
   border-radius: var(--cqc-radius-card);
-  background: var(--cqc-subtle-surface);
+  background: var(--cqc-card);
   color: var(--cqc-text-secondary);
   font-size: 14px;
   line-height: 20px;
@@ -178,7 +216,7 @@ button {
   min-width: 0;
   border: 1px solid var(--cqc-border);
   border-radius: var(--cqc-radius-card);
-  background: var(--cqc-subtle-surface);
+  background: var(--cqc-card);
 }
 
 .setting-card {
@@ -189,6 +227,10 @@ button {
   min-height: 62px;
   padding: 12px 14px;
   cursor: pointer;
+}
+
+.setting-card:hover {
+  background: var(--cqc-card-hover);
 }
 
 .setting-copy {
@@ -208,7 +250,7 @@ button {
 }
 
 .setting-hint {
-  color: var(--cqc-text-tertiary);
+  color: var(--cqc-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -228,9 +270,9 @@ button {
   width: 44px;
   height: 26px;
   flex: 0 0 auto;
-  border: 1px solid var(--cqc-border-strong);
+  border: 1px solid var(--cqc-control-border);
   border-radius: var(--cqc-radius-control);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--cqc-segmented-surface);
   transition:
     background-color 150ms var(--cqc-ease),
     border-color 150ms var(--cqc-ease);
@@ -271,9 +313,9 @@ button {
   gap: 0;
   min-height: 36px;
   padding: 3px;
-  border: 1px solid var(--cqc-border-strong);
+  border: 1px solid var(--cqc-control-border);
   border-radius: var(--cqc-radius-control);
-  background: var(--cqc-subtle-surface);
+  background: var(--cqc-segmented-surface);
 }
 
 .segmented button {
@@ -283,7 +325,7 @@ button {
   border: 0;
   border-radius: var(--cqc-radius-control);
   background: transparent;
-  color: var(--cqc-text-tertiary);
+  color: var(--cqc-text-secondary);
   cursor: pointer;
   font: 500 13px/18px var(--cqc-font);
   transition:
@@ -292,8 +334,9 @@ button {
 }
 
 .segmented button[data-active="true"] {
-  background: var(--cqc-primary);
-  color: var(--cqc-text-inverted);
+  background: var(--cqc-card);
+  color: var(--cqc-text);
+  box-shadow: inset 0 0 0 1px var(--cqc-border);
 }
 
 .segmented button:focus-visible {
@@ -312,7 +355,7 @@ button {
 .info-card span {
   display: block;
   overflow: hidden;
-  color: var(--cqc-text-tertiary);
+  color: var(--cqc-text-secondary);
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
@@ -347,9 +390,9 @@ button {
   justify-content: center;
   gap: 8px;
   height: 36px;
-  border: 1px solid var(--cqc-border-strong);
+  border: 1px solid var(--cqc-control-border);
   border-radius: var(--cqc-radius-control);
-  background: transparent;
+  background: var(--cqc-card);
   color: var(--cqc-text);
   cursor: pointer;
   font: 500 14px/20px var(--cqc-font);
@@ -397,7 +440,7 @@ button {
 
 .cqc-primary:hover {
   border-color: transparent;
-  background: rgba(249, 249, 249, 0.86);
+  background: var(--cqc-primary-hover);
 }
 
 @media (prefers-reduced-motion: reduce) {
