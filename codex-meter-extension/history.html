@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codex Meter · 额度基准历史</title><link rel="stylesheet" href="history.css"></head>
+<body><main><h1>额度基准历史</h1>
+<p>每份快照的当日 Credits ÷ 消耗百分比 × 100，取有效日期的中位数。这是接口在采集当时隐含的换算基准，不保证等于官方真实周额度上限。区间反映同一快照内各日反算值的差异。</p>
+<p>仅在手动刷新时记录；本页只读本机数据，不请求官方接口。长期归档独立于普通快照，清空普通历史不会删除它。卸载扩展、清除浏览器数据或更换配置文件仍会丢失，请定期导出备份。</p>
+<div class="controls"><label>账号 <select id="account"><option value="all">全部账号</option></select></label><button id="export" type="button">导出全部归档 JSON</button></div>
+<p id="status" role="status">读取本地归档…</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="额度基准快照列表"><table><caption>按采集时间排列的快照反算基准</caption><thead><tr><th scope="col">采集时间</th><th scope="col">账号</th><th scope="col">基准 Credits</th><th scope="col">同快照范围</th><th scope="col">较上次</th><th scope="col">有效天数</th><th scope="col">用量日期范围</th></tr></thead><tbody id="rows"></tbody></table></div>
+</main><script src="domain/quota-history.js"></script><script src="domain/quota-snapshot.js"></script><script src="infrastructure/quota-archive.js"></script><script src="history.js"></script></body></html>

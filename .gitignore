@@ -8,6 +8,9 @@
 dist/
 store-assets/.tmp/
 
+# Development dependencies
+node_modules/
+
 # Local editor and temporary files
 *.swp
 *.tmp

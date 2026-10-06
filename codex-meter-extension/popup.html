@@ -13,42 +13,12 @@
           <div id="brandIcon" class="cqc-brand-mark" aria-hidden="true"></div>
           <div>
             <h1 class="cqc-title" id="title">Codex Meter</h1>
-            <p class="cqc-subtitle" data-i18n="subtitle">页面内功能管理</p>
+            <p class="cqc-subtitle" data-i18n="subtitle">本地用量面板</p>
           </div>
         </div>
       </header>
 
       <section id="status" class="cqc-status" data-kind="info">读取本地状态...</section>
-
-      <section class="cqc-section">
-        <h2><span data-icon="settings"></span><span data-i18n="sections.display">页面显示</span></h2>
-        <div class="setting-list">
-          <label class="setting-card">
-            <span class="setting-copy">
-              <span class="setting-title" data-i18n="settings.pageButton.title">页面内按钮</span>
-              <span class="setting-hint" data-i18n="settings.pageButton.hint">在使用详情旁显示 Codex Meter 入口。</span>
-            </span>
-            <input id="showPageButton" type="checkbox" />
-            <span class="switch" aria-hidden="true"></span>
-          </label>
-          <label class="setting-card">
-            <span class="setting-copy">
-              <span class="setting-title" data-i18n="settings.chartControls.title">图表控制</span>
-              <span class="setting-hint" data-i18n="settings.chartControls.hint">在官方图表旁显示 Meter 切换和指标菜单。</span>
-            </span>
-            <input id="showChartControls" type="checkbox" />
-            <span class="switch" aria-hidden="true"></span>
-          </label>
-        </div>
-      </section>
-
-      <section class="cqc-section">
-        <h2><span data-icon="barChart"></span><span data-i18n="sections.chart">默认图表</span></h2>
-        <div class="segmented" role="tablist" aria-label="Default chart mode">
-          <button type="button" role="tab" data-chart-mode="source" data-i18n="chart.source">官方</button>
-          <button type="button" role="tab" data-chart-mode="meter">Meter</button>
-        </div>
-      </section>
 
       <section class="cqc-section">
         <h2><span data-icon="database"></span><span data-i18n="sections.local">本地快照</span></h2>
@@ -64,6 +34,7 @@
         </div>
       </section>
 
+      <p><button id="openQuotaHistory" class="cqc-text-button" type="button">额度基准历史（长期归档）</button></p>
       <footer class="cqc-footer">
         <button id="openAnalytics" class="cqc-text-button" type="button">
           <span data-icon="external"></span><span data-i18n="actions.open">打开页面</span>

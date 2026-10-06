@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Codex Meter",
-  "version": "0.2.19",
-  "description": "Local Codex quota and token analytics for the ChatGPT Codex analytics page.",
+  "version": "0.2.21",
+  "description": "Local Codex quota and token analytics for the ChatGPT usage page.",
   "permissions": ["storage", "tabs", "scripting"],
+  "background": { "service_worker": "background.js" },
   "host_permissions": ["https://chatgpt.com/*"],
   "icons": {
     "16": "icons/icon16.png",
@@ -28,6 +29,7 @@
         "icons.js",
         "shared/config.js",
         "domain/usage-domain.js",
+        "domain/quota-history.js",
         "infrastructure/chatgpt-client.js",
         "infrastructure/report-repository.js",
         "application/report-service.js",

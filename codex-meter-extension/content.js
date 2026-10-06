@@ -1,43 +1,14 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.4.20";
-  const ENABLE_CHART_TOOLTIP_ENHANCER = false;
-  const CHART_IDS = {
-    controls: "codex-meter-chart-controls",
-    switcher: "codex-meter-chart-switcher",
-    metric: "codex-meter-chart-metric",
-    view: "codex-meter-chart-view",
-  };
-  const CHART_MODE_STORAGE_KEY = "codexMeterUsageChartMode";
-  const CHART_METRIC_STORAGE_KEY = "codexMeterUsageChartMetric";
-  const CHART_MODES = {
-    source: "source",
-    meter: "meter",
-  };
-  const CHART_RANGES = {
-    sevenDays: "7d",
-    month: "month",
-    custom: "custom",
-  };
-  const CHART_GROUPINGS = {
-    day: "day",
-    week: "week",
-  };
-  const CHART_METRICS = {
-    credits: "credits",
-    tokens: "tokens",
-    usd: "usd",
-    turns: "turns",
-  };
-
+  const CONTENT_SCRIPT_VERSION = "0.4.22";
   if (window.__codexQuotaCompassInstalled === CONTENT_SCRIPT_VERSION) {
     window.__codexQuotaCompassUpdateVisibility?.();
     return;
   }
   window.__codexQuotaCompassInstalled = CONTENT_SCRIPT_VERSION;
 
-  const { CONFIG, DEFAULT_SETTINGS, IDS, isAnalyticsRoute } = window.CodexMeterConfig;
+  const { CONFIG, IDS, isAnalyticsRoute } = window.CodexMeterConfig;
   const domain = window.CodexMeterDomain;
   const chatGptClient = window.CodexMeterChatGptClient;
   const reportRepository = window.CodexMeterReportRepository;
@@ -45,81 +16,7 @@
 
   let latestReport = null;
   let isRunning = false;
-  let passiveReportPromise = null;
   let cacheHydrationPromise = null;
-  let chartTooltipFrame = 0;
-  let chartPointer = null;
-  let usageChartControlTimer = 0;
-  let usageChartResizeFrame = 0;
-  let usageChartMode = CHART_MODES.source;
-  let meterChartMetric = CHART_METRICS.credits;
-  let meterSettings = { ...DEFAULT_SETTINGS };
-  let renderedMeterChartRows = [];
-  let lastPassiveRefreshAt = 0;
-  const PASSIVE_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
-
-  const isValidChartMode = (mode) => mode === CHART_MODES.source || mode === CHART_MODES.meter;
-
-  const normalizeSettings = (settings = {}) => ({
-    ...DEFAULT_SETTINGS,
-    ...settings,
-    defaultChartMode: isValidChartMode(settings.defaultChartMode)
-      ? settings.defaultChartMode
-      : DEFAULT_SETTINGS.defaultChartMode,
-  });
-
-  try {
-    const storedMode = window.localStorage?.getItem(CHART_MODE_STORAGE_KEY);
-    if (storedMode === CHART_MODES.meter || storedMode === CHART_MODES.source) {
-      usageChartMode = storedMode;
-    }
-  } catch {
-    usageChartMode = CHART_MODES.source;
-  }
-
-  try {
-    const storedMetric = window.localStorage?.getItem(CHART_METRIC_STORAGE_KEY);
-    if (Object.values(CHART_METRICS).includes(storedMetric)) {
-      meterChartMetric = storedMetric;
-    }
-  } catch {
-    meterChartMetric = CHART_METRICS.credits;
-  }
-
-  const applyMeterSettings = (settings, { syncChartMode = true } = {}) => {
-    meterSettings = normalizeSettings(settings);
-    if (syncChartMode && isValidChartMode(meterSettings.defaultChartMode)) {
-      setUsageChartMode(meterSettings.defaultChartMode, { persistSettings: false });
-      updateVisibility();
-      return;
-    }
-    updateVisibility();
-  };
-
-  const loadMeterSettings = async () => {
-    try {
-      const data = await chrome.storage.local.get(CONFIG.STORAGE_SETTINGS);
-      applyMeterSettings(data[CONFIG.STORAGE_SETTINGS], { syncChartMode: true });
-    } catch {
-      applyMeterSettings(DEFAULT_SETTINGS, { syncChartMode: true });
-    }
-  };
-
-  const saveMeterSettings = async (patch) => {
-    const nextSettings = normalizeSettings({ ...meterSettings, ...patch });
-    meterSettings = nextSettings;
-    await chrome.storage.local.set({ [CONFIG.STORAGE_SETTINGS]: nextSettings });
-  };
-
-  const installSettingsSync = () => {
-    if (installSettingsSync.didInstall) return;
-    installSettingsSync.didInstall = true;
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== "local" || !changes[CONFIG.STORAGE_SETTINGS]) return;
-      applyMeterSettings(changes[CONFIG.STORAGE_SETTINGS].newValue, { syncChartMode: true });
-    });
-  };
-
   const MESSAGES = {
     "zh-CN": {
       usageDetails: "使用详情",
@@ -132,6 +29,8 @@
       close: "关闭",
       refresh: "刷新",
       skeletonIdle: "点击“刷新”读取当前 Codex 用量数据。数据只保存在这台电脑上。",
+      cachedNotice: "当前显示本地缓存，不会自动更新。点击“刷新”获取最新数据。",
+      storageSaveFailed: "最新数据已读取，但本地快照保存失败（可能已达到存储容量上限）。本次数据仅在当前页面有效，原有历史未删除。",
       skeletonLoading: "正在读取 Codex 用量和每日明细...",
       updated: "数据已更新：{time}",
       tooltipPending: "Codex Meter · 更新中",
@@ -330,6 +229,8 @@
       close: "Close",
       refresh: "Refresh",
       skeletonIdle: "Click Refresh to read the current Codex usage data. Data stays on this computer.",
+      cachedNotice: "Showing local cached data; it does not update automatically. Click Refresh for current data.",
+      storageSaveFailed: "Fresh data was fetched, but saving the local snapshot failed (storage may be full). This update is available only on this page; existing history was not deleted.",
       skeletonLoading: "Reading Codex usage and daily details...",
       updated: "Data updated: {time}",
       tooltipPending: "Codex Meter · updating",
@@ -835,1123 +736,21 @@
     if (element.getAttribute(name) !== next) element.setAttribute(name, next);
   };
 
-  const setDatasetIfChanged = (element, name, value) => {
-    const next = String(value);
-    if (element.dataset[name] !== next) element.dataset[name] = next;
-  };
-
-  const setHtmlIfChanged = (element, html) => {
-    if (element.innerHTML !== html) element.innerHTML = html;
-  };
-
-  const elementText = (element) =>
-    (element?.innerText || element?.textContent || "").replace(/\s+/g, " ").trim();
-
-  const isVisibleElement = (element) => {
-    if (!element || element.closest(`#${IDS.overlay}`)) return false;
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return (
-      rect.width > 0 &&
-      rect.height > 0 &&
-      rect.bottom > 0 &&
-      rect.right > 0 &&
-      style.display !== "none" &&
-      style.visibility !== "hidden"
-    );
-  };
-
-  const isLikelyMainContentRect = (rect, minWidth = 320) =>
-    rect.width >= minWidth && rect.right >= minWidth;
-
-  const visibleMainSections = () =>
-    [...document.querySelectorAll("main section, main article, section")]
-      .filter(isVisibleElement)
-      .filter((section) => {
-        const rect = section.getBoundingClientRect();
-        return isLikelyMainContentRect(rect) && section.querySelector("h2,h3");
-      })
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-
-  const isRenderableElement = (element) => {
-    if (!element || element.closest(`#${IDS.overlay}`)) return false;
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return (
-      element.getClientRects().length > 0 &&
-      rect.width > 0 &&
-      rect.height > 0 &&
-      style.display !== "none" &&
-      style.visibility !== "hidden"
-    );
-  };
-
-  const mainHeadings = () =>
-    [...document.querySelectorAll("main h1, main h2, main h3, main [role='heading']")]
-      .filter(isRenderableElement)
-      .filter((heading) => {
-        const rect = heading.getBoundingClientRect();
-        return rect.width > 0 && rect.right > 120;
-      });
-
-  const sectionHeading = (section) =>
-    [...section.querySelectorAll("h2,h3")]
-      .filter(isRenderableElement)
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0] || null;
-
-  const visibleHeadings = () =>
-    mainHeadings()
-      .filter(isVisibleElement)
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-
-  const findKnownHeading = (key) => {
-    const labels = knownText(key);
-    return (
-      mainHeadings().find((heading) => {
-        const text = elementText(heading);
-        return labels.some((label) => text === label || text.startsWith(label));
-      }) || null
-    );
-  };
-
-  const sectionForHeading = (heading) => {
-    if (!heading) return null;
-    const headingRect = heading.getBoundingClientRect();
-    let candidate = null;
-    let current = heading?.parentElement || null;
-    while (current && current !== document.body) {
-      const rect = current.getBoundingClientRect();
-      const startsNearHeading = rect.top <= headingRect.top + 8 && headingRect.top - rect.top <= 96;
-      if (isLikelyMainContentRect(rect) && startsNearHeading) {
-        candidate = current;
-      }
-      if (headingRect.top - rect.top > 140) break;
-      current = current.parentElement;
-    }
-    return candidate || heading.parentElement || null;
-  };
-
-  const mountForHeading = (heading) => ({
-    heading,
-    section: sectionForHeading(heading),
-    placement: "section",
-  });
-
-  const headingNearSection = (section) => {
-    const sectionRect = section.getBoundingClientRect();
-    return (
-      visibleHeadings()
-        .filter((heading) => {
-          const rect = heading.getBoundingClientRect();
-          return rect.top >= sectionRect.top - 220 && rect.top <= sectionRect.bottom;
-        })
-        .sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0] ||
-      sectionHeading(section)
-    );
-  };
-
-  const hasProductUsageLegend = (element) => {
-    const text = elementText(element);
-    return /\bDesktop App\b/.test(text) && /\b(CLI|Cloud|Exec|Other)\b/.test(text);
-  };
-
-  const findProductUsageSection = () =>
-    visibleMainSections()
-      .filter(hasProductUsageLegend)
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return ar.top - br.top || ar.height - br.height;
-      })[0] || null;
-
-  const findProductLegendElement = (section) =>
-    [...section.querySelectorAll("div,ul,ol,nav")]
-      .filter(isRenderableElement)
-      .filter((element) => element !== section && hasProductUsageLegend(element))
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return ar.width * ar.height - br.width * br.height;
-      })[0] || null;
-
-  const findProductChartHeading = (section) => {
-    if (!section) return null;
-    const headings = [...section.querySelectorAll("h2,h3,[role='heading']")]
-      .filter(isRenderableElement)
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    const knownPersonalLabels = knownText("personalUsage");
-    return (
-      headings.find((heading) => knownPersonalLabels.includes(elementText(heading))) ||
-      headings.findLast?.((heading) => heading.matches("h3,[role='heading']")) ||
-      headings.filter((heading) => heading.matches("h3,[role='heading']")).at(-1) ||
-      headings.at(-1) ||
-      null
-    );
-  };
-
-  const findProductChartFrame = (section, heading) => {
-    if (!section) return null;
-    const sectionRect = section.getBoundingClientRect();
-    const headingBottom = heading?.getBoundingClientRect().bottom ?? sectionRect.top;
-    const legend = findProductLegendElement(section);
-    const legendTop = legend?.getBoundingClientRect().top ?? sectionRect.bottom;
-    const candidates = [...section.querySelectorAll("div,section,article,svg,canvas")]
-      .filter(isRenderableElement)
-      .filter((element) => !element.closest(`#${IDS.overlay}, #${CHART_IDS.view}, #${CHART_IDS.controls}`))
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        const area = rect.width * rect.height;
-        return (
-          rect.top >= headingBottom + 12 &&
-          rect.top < legendTop &&
-          rect.bottom <= legendTop + 28 &&
-          rect.width >= Math.min(520, sectionRect.width * 0.55) &&
-          rect.height >= 220 &&
-          area < sectionRect.width * sectionRect.height * 0.82
-        );
-      })
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        const aKindScore = a.matches("svg.recharts-surface") ? -120 : a.matches("svg,canvas") ? -60 : 0;
-        const bKindScore = b.matches("svg.recharts-surface") ? -120 : b.matches("svg,canvas") ? -60 : 0;
-        const aScore = aKindScore + Math.abs(ar.top - (headingBottom + 32)) + Math.abs(ar.bottom - legendTop) * 0.35;
-        const bScore = bKindScore + Math.abs(br.top - (headingBottom + 32)) + Math.abs(br.bottom - legendTop) * 0.35;
-        return aScore - bScore;
-      });
-    return {
-      frame: candidates[0] || null,
-      legend,
-    };
-  };
-
-  const clearProductChartMountMarks = () => {
-    document
-      .querySelectorAll("[data-cqm-source-chart-frame], [data-cqm-source-chart-legend]")
-      .forEach((element) => {
-        element.removeAttribute("data-cqm-source-chart-frame");
-        element.removeAttribute("data-cqm-source-chart-legend");
-      });
-  };
-
-  const markProductChartMount = (chartMount) => {
-    clearProductChartMountMarks();
-    chartMount?.frame?.setAttribute("data-cqm-source-chart-frame", "true");
-    chartMount?.legend?.setAttribute("data-cqm-source-chart-legend", "true");
-  };
-
-  const findUsageDetailsMount = () => {
-    const knownHeading = findKnownHeading("usageDetails");
-    if (knownHeading) return mountForHeading(knownHeading);
-
-    const productLegendSection = findProductUsageSection();
-    if (productLegendSection) {
-      return mountForHeading(sectionHeading(productLegendSection) || headingNearSection(productLegendSection));
-    }
-
-    return null;
-  };
-
-  const positionDetailButton = (button, heading, section, placement) => {
-    if (placement === "fixed") {
-      button.style.removeProperty("--cqm-detail-top");
-      return;
-    }
-    const headingRect = heading.getBoundingClientRect();
-    const sectionRect = section.getBoundingClientRect();
-    const top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 2));
-    const nextTop = `${top}px`;
-    if (button.style.getPropertyValue("--cqm-detail-top") !== nextTop) {
-      button.style.setProperty("--cqm-detail-top", nextTop);
-    }
-  };
-
-  const ensureDetailButton = () => {
-    if (!isAnalyticsRoute() || !meterSettings.showPageButton) {
-      removeDetailButton();
-      return false;
-    }
-
-    const mount = findUsageDetailsMount();
-    if (!mount?.heading || !mount.section) {
-      removeDetailButton();
-      return false;
-    }
-
-    let button = document.getElementById(IDS.button);
-    if (!button) {
-      button = document.createElement("button");
-      button.id = IDS.button;
-      button.type = "button";
-      button.className = "cqm-detail-button";
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (latestReport) {
-          ensureUi();
-          renderReport(latestReport);
-          openPanel();
-        }
-        runAnalysis({ openPanel: true }).catch(() => {});
-      });
-    }
-
-    setAttributeIfChanged(button, "title", t("trigger.title"));
-    setDatasetIfChanged(button, "placement", mount.placement);
-    if (button.parentElement !== mount.section) mount.section.appendChild(button);
-    if (!isRunning) setTriggerButton("gauge", t("trigger.label"));
-    if (mount.placement === "section" && getComputedStyle(mount.section).position === "static") {
-      mount.section.style.position = "relative";
-    }
-    positionDetailButton(button, mount.heading, mount.section, mount.placement);
-    setDatasetIfChanged(button, "visible", "true");
-    return true;
-  };
-
-  const removeDetailButton = () => {
-    document.getElementById(IDS.button)?.remove();
-  };
-
-  const ensureUsageChartSwitch = () => {
-    if (!isAnalyticsRoute() || !meterSettings.showChartControls) {
-      removeUsageChartSwitch();
-      return false;
-    }
-
-    const section = findProductUsageSection();
-    const heading = findProductChartHeading(section);
-    if (!section || !heading) {
-      removeUsageChartSwitch();
-      return false;
-    }
-
-    if (getComputedStyle(section).position === "static") section.style.position = "relative";
-    const detailMount = findUsageDetailsMount();
-    const switcherMount = detailMount?.section || section;
-    if (getComputedStyle(switcherMount).position === "static") switcherMount.style.position = "relative";
-    if (usageChartMode === CHART_MODES.source) {
-      setDatasetIfChanged(section, "cqmMeterChartMode", usageChartMode);
-    }
-    const chartMount = findProductChartFrame(section, heading);
-    if (!chartMount?.frame) {
-      removeUsageChartSwitch();
-      return false;
-    }
-    markProductChartMount(chartMount);
-
-    let controls = document.getElementById(CHART_IDS.controls);
-    if (!controls) {
-      controls = document.createElement("div");
-      controls.id = CHART_IDS.controls;
-    }
-    if (controls.parentElement !== switcherMount) switcherMount.appendChild(controls);
-
-    let switcher = document.getElementById(CHART_IDS.switcher);
-    if (!switcher) {
-      switcher = document.createElement("div");
-      switcher.id = CHART_IDS.switcher;
-      switcher.className = "cqm-chart-switcher";
-      switcher.setAttribute("role", "tablist");
-      switcher.addEventListener("click", (event) => {
-        const button = event.target.closest("[data-cqm-chart-mode]");
-        if (!button || !switcher.contains(button)) return;
-        event.preventDefault();
-        const nextMode = button.dataset.cqmChartMode;
-        if (nextMode === usageChartMode || button.dataset.active === "true") return;
-        setUsageChartMode(nextMode);
-      });
-    }
-
-    const switcherRenderKey = `${getLocale()}|${t("chart.source")}|${t("chart.meter")}`;
-    const switcherHtml = `
-      <button type="button" role="tab" data-cqm-chart-mode="${CHART_MODES.source}">
-        ${escapeHtml(t("chart.source"))}
-      </button>
-      <button type="button" role="tab" data-cqm-chart-mode="${CHART_MODES.meter}">
-        ${escapeHtml(t("chart.meter"))}
-      </button>
-    `;
-    if (switcher.dataset.renderKey !== switcherRenderKey) {
-      switcher.dataset.renderKey = switcherRenderKey;
-      setHtmlIfChanged(switcher, switcherHtml);
-    }
-    if (switcher.parentElement !== controls) controls.appendChild(switcher);
-
-    let metric = document.getElementById(CHART_IDS.metric);
-    if (!metric) {
-      metric = document.createElement("div");
-      metric.id = CHART_IDS.metric;
-      metric.addEventListener("click", (event) => {
-        const option = event.target.closest("[data-cqm-chart-metric]");
-        if (option && metric.contains(option)) {
-          event.preventDefault();
-          event.stopPropagation();
-          setMeterChartMetric(option.dataset.cqmChartMetric);
-          return;
-        }
-        const button = event.target.closest(".cqm-chart-metric-button");
-        if (button && metric.contains(button)) {
-          event.preventDefault();
-          event.stopPropagation();
-          toggleMeterMetricMenu();
-        }
-      });
-    }
-    setHtmlIfChanged(metric, renderMeterMetricControl());
-    if (metric.parentElement !== controls) controls.appendChild(metric);
-    installMeterMetricDismiss();
-
-    let view = document.getElementById(CHART_IDS.view);
-    if (!view) {
-      view = document.createElement("div");
-      view.id = CHART_IDS.view;
-      view.className = "cqm-meter-chart-view";
-      view.addEventListener("pointermove", handleMeterChartPointerMove);
-      view.addEventListener("pointerleave", hideMeterChartTooltip);
-    }
-    if (view.parentElement !== section) section.appendChild(view);
-
-    setDatasetIfChanged(section, "cqmMeterChartMode", usageChartMode);
-    updateUsageChartSwitcher(switcher);
-    updateMeterMetricControl(metric);
-    positionUsageChartLayer(section, heading, controls, view, chartMount, switcherMount);
-    renderMeterChartView();
-    if (usageChartMode === CHART_MODES.meter && !latestReport) {
-      renderMeterChartLoading();
-      ensurePassiveReport({ allowRefresh: true }).then((report) => {
-        if (report && usageChartMode === CHART_MODES.meter) renderMeterChartView();
-      });
-    }
-    return true;
-  };
-
-  const removeUsageChartSwitch = () => {
-    document.getElementById(CHART_IDS.controls)?.remove();
-    document.getElementById(CHART_IDS.switcher)?.remove();
-    document.getElementById(CHART_IDS.metric)?.remove();
-    document.getElementById(CHART_IDS.view)?.remove();
-    clearProductChartMountMarks();
-    document.querySelectorAll("[data-cqm-meter-chart-mode]").forEach((section) => {
-      delete section.dataset.cqmMeterChartMode;
-    });
-  };
-
-  const setUsageChartMode = (mode, { persistSettings = true } = {}) => {
-    if (mode !== CHART_MODES.source && mode !== CHART_MODES.meter) return;
-    if (mode === usageChartMode) return;
-    usageChartMode = mode;
-    try {
-      window.localStorage?.setItem(CHART_MODE_STORAGE_KEY, mode);
-    } catch {}
-    if (persistSettings) {
-      saveMeterSettings({ defaultChartMode: mode }).catch(() => {});
-    }
-    if (mode === CHART_MODES.source) {
-      document.querySelectorAll("[data-cqm-meter-chart-mode]").forEach((section) => {
-        setDatasetIfChanged(section, "cqmMeterChartMode", mode);
-      });
-      hideMeterChartTooltip();
-    }
-    ensureUsageChartSwitch();
-  };
-
-  const setMeterChartMetric = (metric) => {
-    if (!Object.values(CHART_METRICS).includes(metric)) return;
-    meterChartMetric = metric;
-    try {
-      window.localStorage?.setItem(CHART_METRIC_STORAGE_KEY, metric);
-    } catch {}
-    const control = document.getElementById(CHART_IDS.metric);
-    if (control) setHtmlIfChanged(control, renderMeterMetricControl());
-    if (control) setDatasetIfChanged(control, "open", "false");
-    updateMeterMetricControl(control);
-    renderMeterChartView();
-  };
-
-  const toggleMeterMetricMenu = () => {
-    const control = document.getElementById(CHART_IDS.metric);
-    if (!control) return;
-    const nextOpen = control.dataset.open === "true" ? "false" : "true";
-    setDatasetIfChanged(control, "open", nextOpen);
-    control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", nextOpen);
-  };
-
-  const installMeterMetricDismiss = () => {
-    if (installMeterMetricDismiss.didInstall) return;
-    installMeterMetricDismiss.didInstall = true;
-    document.addEventListener(
-      "pointerdown",
-      (event) => {
-        const control = document.getElementById(CHART_IDS.metric);
-        if (!control || control.contains(event.target)) return;
-        setDatasetIfChanged(control, "open", "false");
-        control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
-      },
-      true,
-    );
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      const control = document.getElementById(CHART_IDS.metric);
-      if (!control) return;
-      setDatasetIfChanged(control, "open", "false");
-      control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", "false");
-    });
-  };
-
-  const updateUsageChartSwitcher = (switcher) => {
-    switcher.querySelectorAll("[data-cqm-chart-mode]").forEach((button) => {
-      const active = button.dataset.cqmChartMode === usageChartMode;
-      setAttributeIfChanged(button, "aria-selected", active ? "true" : "false");
-      setDatasetIfChanged(button, "active", active ? "true" : "false");
-      button.tabIndex = active ? 0 : -1;
-    });
-  };
-
-  const meterMetricColors = {
-    [CHART_METRICS.credits]: "#dc2626",
-    [CHART_METRICS.tokens]: "#1d4ed8",
-    [CHART_METRICS.usd]: "#059669",
-    [CHART_METRICS.turns]: "#7c2d12",
-  };
-
-  const meterTokenSeries = () => [
-    { key: "uncachedInput", label: t("chart.series.uncachedInput"), color: "#dc2626" },
-    { key: "cachedInput", label: t("chart.series.cachedInput"), color: "#7c2d12" },
-    { key: "output", label: t("chart.series.output"), color: "#1d4ed8" },
-  ];
-
-  const meterMetricOptions = () => [
-    { key: CHART_METRICS.credits, label: t("table.credits"), color: meterMetricColors[CHART_METRICS.credits] },
-    { key: CHART_METRICS.tokens, label: t("table.tokens"), color: meterMetricColors[CHART_METRICS.tokens] },
-    { key: CHART_METRICS.usd, label: t("table.usd"), color: meterMetricColors[CHART_METRICS.usd] },
-    { key: CHART_METRICS.turns, label: t("table.turns"), color: meterMetricColors[CHART_METRICS.turns] },
-  ];
-
-  const currentMeterMetricOption = () =>
-    meterMetricOptions().find((option) => option.key === meterChartMetric) || meterMetricOptions()[0];
-
-  const renderMeterMetricControl = () => {
-    const current = currentMeterMetricOption();
-    return `
-      <button
-        type="button"
-        class="cqm-chart-metric-button"
-        aria-haspopup="menu"
-        aria-expanded="false"
-      >
-        <span class="cqm-chart-metric-label">${escapeHtml(t("chart.metric"))}:</span>
-        <i class="cqm-chart-metric-swatch" style="--cqm-series-color:${escapeHtml(current.color)}"></i>
-        <span>${escapeHtml(current.label)}</span>
-        ${icon("chevronDown")}
-      </button>
-      <div class="cqm-chart-metric-menu" role="menu">
-        ${meterMetricOptions()
-          .map(
-            (option) => `
-              <button
-                type="button"
-                class="cqm-chart-metric-option"
-                role="menuitemradio"
-                aria-checked="${option.key === meterChartMetric ? "true" : "false"}"
-                data-cqm-chart-metric="${option.key}"
-              >
-                <span><i class="cqm-chart-metric-swatch" style="--cqm-series-color:${escapeHtml(option.color)}"></i>${escapeHtml(option.label)}</span>
-                ${icon("check")}
-              </button>
-            `,
-          )
-          .join("")}
-      </div>
-    `;
-  };
-
-  const updateMeterMetricControl = (control = document.getElementById(CHART_IDS.metric)) => {
-    if (!control) return;
-    const visible = usageChartMode === CHART_MODES.meter;
-    setDatasetIfChanged(control, "visible", visible ? "true" : "false");
-    if (!visible) setDatasetIfChanged(control, "open", "false");
-    control.querySelector(".cqm-chart-metric-button")?.setAttribute("aria-expanded", control.dataset.open === "true" ? "true" : "false");
-    control.querySelectorAll("[data-cqm-chart-metric]").forEach((option) => {
-      option.setAttribute("aria-checked", option.dataset.cqmChartMetric === meterChartMetric ? "true" : "false");
-    });
-  };
-
-  const positionUsageChartLayer = (section, heading, controls, view, chartMount, switcherMount) => {
-    const sectionRect = section.getBoundingClientRect();
-    const switcherMountRect = switcherMount.getBoundingClientRect();
-    const headingRect = heading.getBoundingClientRect();
-    const frameRect = chartMount.frame.getBoundingClientRect();
-    const legendRect = chartMount.legend?.getBoundingClientRect();
-    const buttonRect = document.getElementById(IDS.button)?.getBoundingClientRect();
-    const chartTop = Math.max(0, Math.round(frameRect.top - sectionRect.top));
-    const chartBottom = Math.round((legendRect?.bottom || frameRect.bottom) - sectionRect.top);
-    const height = Math.max(260, Math.min(620, chartBottom - chartTop));
-    const svgHeight = Math.round(frameRect.height);
-    const legendGap = Math.max(0, Math.round((legendRect?.top ?? frameRect.bottom) - frameRect.bottom));
-    const switcherHeight = 30;
-    setDatasetIfChanged(controls, "layout", "inline");
-    if (buttonRect) {
-      const minControlsWidth = usageChartMode === CHART_MODES.meter ? 456 : 172;
-      const availableBeforeButton = Math.max(0, Math.round(buttonRect.left - switcherMountRect.left - 16));
-      const compact = availableBeforeButton < minControlsWidth;
-      const top = Math.max(
-        0,
-        Math.round(
-          buttonRect.top -
-            switcherMountRect.top +
-            (compact ? buttonRect.height + 8 : (buttonRect.height - switcherHeight) / 2),
-        ),
-      );
-      const buttonLeftRight = Math.max(24, Math.round(switcherMountRect.right - buttonRect.left));
-      controls.style.setProperty("--cqm-chart-controls-top", `${top}px`);
-      controls.style.setProperty("--cqm-chart-controls-right", `${compact ? 24 : buttonLeftRight + 8}px`);
-      controls.style.setProperty(
-        "--cqm-chart-controls-max-width",
-        `${Math.max(240, Math.round(switcherMountRect.width - 48))}px`,
-      );
-      setDatasetIfChanged(controls, "layout", compact ? "compact" : "inline");
-    } else {
-      const top = Math.max(0, Math.round(headingRect.top - sectionRect.top - 1));
-      controls.style.setProperty("--cqm-chart-controls-top", `${top}px`);
-      controls.style.setProperty("--cqm-chart-controls-right", "24px");
-      controls.style.setProperty("--cqm-chart-controls-max-width", `${Math.max(240, Math.round(sectionRect.width - 48))}px`);
-    }
-    view.style.setProperty("--cqm-meter-chart-top", `${chartTop}px`);
-    view.style.setProperty("--cqm-meter-chart-height", `${height}px`);
-    view.style.setProperty("--cqm-meter-svg-height", `${svgHeight}px`);
-    view.style.setProperty("--cqm-meter-legend-gap", `${legendGap}px`);
-  };
-
-  const renderMeterChartLoading = () => {
-    const view = document.getElementById(CHART_IDS.view);
-    if (!view) return;
-    setHtmlIfChanged(
-      view,
-      `<div class="cqm-meter-chart-state">${icon("sparkles")}<span>${escapeHtml(t("chart.loading"))}</span></div>`,
-    );
-  };
-
-  const renderMeterChartView = () => {
-    const view = document.getElementById(CHART_IDS.view);
-    if (!view) return;
-    if (!latestReport) {
-      renderedMeterChartRows = [];
-      renderMeterChartLoading();
-      return;
-    }
-    const scope = meterChartScope(latestReport);
-    const rows = meterChartRows(latestReport, scope);
-    if (!rows.length) {
-      renderedMeterChartRows = [];
-      view.dataset.chartKey = `empty:${scope.key}`;
-      setHtmlIfChanged(
-        view,
-        `<div class="cqm-meter-chart-state">${icon("barChart")}<span>${escapeHtml(t("chart.empty"))}</span></div>`,
-      );
-      return;
-    }
-    const chartWidth = meterChartRenderWidth(view);
-    const key = `${getLocale()}|${meterChartMetric}|${scope.key}|${chartWidth}|${rows
-      .map((row) => `${row.date}:${row.endDate || ""}:${row.credits}:${row.tokens}:${row.uncachedInputTokens}:${row.cachedInputTokens}:${row.outputTokens}:${row.turns}`)
-      .join("|")}`;
-    if (view.dataset.chartKey === key) return;
-    view.dataset.chartKey = key;
-    renderedMeterChartRows = rows;
-    setHtmlIfChanged(view, renderMeterChart(rows, chartWidth));
-  };
-
-  const meterChartRenderWidth = (view) => {
-    const rectWidth = view?.getBoundingClientRect?.().width || 0;
-    return Math.max(360, Math.round(rectWidth || 952));
-  };
-
-  const meterChartRows = (report, scope = meterChartScope(report)) => {
-    const dailyRows = sortedDailyRows(report).filter(
-      (row) => row.date >= scope.startDate && row.date <= scope.endDate,
-    );
-    const rows =
-      scope.grouping === CHART_GROUPINGS.week
-        ? aggregateMeterRowsByWeek(dailyRows, scope)
-        : dailyRows.map((row) => meterChartRowFromTotals(row.date, row.totals || {}));
-    return rows.filter((row) => row.credits > 0 || row.tokens > 0 || row.turns > 0);
-  };
-
-  const sortedDailyRows = (report) =>
-    [...(report?.dailyList || [])]
-      .filter((row) => row?.date && row.date <= domain.localDate())
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-
-  const meterChartScope = (report) => {
-    const today = domain.localDate();
-    const reportExtent = dailyReportExtent(report) || {
-      startDate: dateKeyAdd(today, -31),
-      endDate: today,
-    };
-    const range = detectOfficialChartRange();
-    const grouping = detectOfficialChartGrouping();
-    const officialExtent = officialChartDateExtent(report);
-    const officialSpan = officialExtent ? daysBetween(officialExtent.startDate, officialExtent.endDate) : 0;
-    const canUseOfficialExtent =
-      officialExtent &&
-      (range === CHART_RANGES.custom ||
-        (range === CHART_RANGES.sevenDays && officialSpan <= 10) ||
-        (range === CHART_RANGES.month && officialSpan >= 20 && officialSpan <= 40));
-
-    let startDate = canUseOfficialExtent ? officialExtent.startDate : reportExtent.startDate;
-    let endDate = canUseOfficialExtent ? officialExtent.endDate : reportExtent.endDate;
-
-    if (!canUseOfficialExtent) {
-      if (range === CHART_RANGES.sevenDays) {
-        startDate = dateKeyAdd(today, -6);
-        endDate = today;
-      } else if (range === CHART_RANGES.month) {
-        startDate = dateKeyAdd(today, -31);
-        endDate = today;
-      }
-    }
-
-    startDate = maxDateKey(startDate, reportExtent.startDate);
-    endDate = minDateKey(endDate, reportExtent.endDate, today);
-    if (startDate > endDate) {
-      startDate = reportExtent.startDate;
-      endDate = reportExtent.endDate;
-    }
-
-    return {
-      range,
-      grouping,
-      startDate,
-      endDate,
-      key: `${range}:${grouping}:${startDate}:${endDate}`,
-    };
-  };
-
-  const dailyReportExtent = (report) => {
-    const rows = sortedDailyRows(report);
-    if (!rows.length) return null;
-    return {
-      startDate: rows[0].date,
-      endDate: rows.at(-1).date,
-    };
-  };
-
-  const detectOfficialChartRange = () => {
-    const buttons = findOfficialRangeButtons();
-    const activeIndex = buttons.findIndex(isOfficialActiveSegmentButton);
-    if (activeIndex === 0) return CHART_RANGES.sevenDays;
-    if (activeIndex === 1) return CHART_RANGES.month;
-    if (activeIndex === 2) return CHART_RANGES.custom;
-
-    const activeText = normalizedText(buttons.find(isOfficialActiveSegmentButton)?.textContent || "");
-    if (/(^|[^0-9])7([^0-9]|$)/.test(activeText)) return CHART_RANGES.sevenDays;
-    if (/month|monate|mes|mois|месяц|月|개월/.test(activeText)) return CHART_RANGES.month;
-    if (/custom|自定义|自訂|カスタム|personnalis|personaliz|benutzer|польз/.test(activeText)) {
-      return CHART_RANGES.custom;
-    }
-    return CHART_RANGES.month;
-  };
-
-  const findOfficialRangeButtons = () => {
-    const groups = [...document.querySelectorAll("main div")]
-      .filter((element) => !isCodexMeterOwned(element))
-      .map((group) => [...group.children].filter((child) => child.matches?.("button")))
-      .filter((buttons) => buttons.length >= 3)
-      .filter((buttons) => buttons.slice(0, 3).some((button) => button.getAttribute("aria-haspopup") === "dialog"))
-      .filter((buttons) => buttons.every((button) => button.getBoundingClientRect().height > 0))
-      .sort((a, b) => a[0].getBoundingClientRect().top - b[0].getBoundingClientRect().top);
-    return groups[0]?.slice(0, 3) || [];
-  };
-
-  const isOfficialActiveSegmentButton = (button) => {
-    const className = String(button?.className || "");
-    return (
-      /\bbg-token-bg-primary\b/.test(className) ||
-      /\bshadow-sm\b/.test(className) ||
-      button?.getAttribute("aria-selected") === "true" ||
-      button?.getAttribute("aria-pressed") === "true"
-    );
-  };
-
-  const detectOfficialChartGrouping = () => {
-    const button = [...document.querySelectorAll("main button[role='combobox']")]
-      .filter((element) => !isCodexMeterOwned(element) && isRenderableElement(element))
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
-    const text = normalizedText(button?.textContent || "");
-    if (
-      /week|weeks|semana|semaine|woche|недел|週|周/.test(text)
-    ) {
-      return CHART_GROUPINGS.week;
-    }
-    return CHART_GROUPINGS.day;
-  };
-
-  const officialChartDateExtent = (report) => {
-    const rows = sortedDailyRows(report);
-    if (!rows.length) return null;
-    const frame =
-      document.querySelector("[data-cqm-source-chart-frame='true']") ||
-      (() => {
-        const section = findProductUsageSection();
-        return findProductChartFrame(section, findProductChartHeading(section))?.frame || null;
-      })();
-    if (!frame) return null;
-
-    const rowByDate = new Map(rows.map((row) => [row.date, row]));
-    const matchedDates = [];
-    const labels = [...frame.querySelectorAll("text,tspan")]
-      .map((element) => elementText(element))
-      .filter(Boolean);
-    labels.forEach((label) => {
-      const explicitKeys = dateKeysFromTooltipText(label).filter((key) => rowByDate.has(key));
-      if (explicitKeys.length) {
-        matchedDates.push(...explicitKeys);
-        return;
-      }
-      rows.forEach((row) => {
-        if (dateVariants(row.date).some((variant) => textContainsDateVariant(label, variant))) {
-          matchedDates.push(row.date);
-        }
-      });
-    });
-
-    const dates = [...new Set(matchedDates)].sort();
-    if (dates.length < 2) return null;
-    return {
-      startDate: dates[0],
-      endDate: dates.at(-1),
-    };
-  };
-
-  const aggregateMeterRowsByWeek = (rows, scope) => {
-    const buckets = new Map();
-    rows.forEach((row) => {
-      const startDate = maxDateKey(weekStartDateKey(row.date), scope.startDate);
-      const endDate = minDateKey(dateKeyAdd(startDate, 6), scope.endDate);
-      const bucketKey = startDate;
-      const bucket =
-        buckets.get(bucketKey) ||
-        {
-          date: startDate,
-          endDate,
-          totals: emptyUsageTotals(),
-        };
-      bucket.endDate = maxDateKey(bucket.endDate, endDate);
-      addUsageTotals(bucket.totals, row.totals || {});
-      buckets.set(bucketKey, bucket);
-    });
-    return [...buckets.values()]
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-      .map((bucket) => meterChartRowFromTotals(bucket.date, bucket.totals, { endDate: bucket.endDate }));
-  };
-
-  const meterChartRowFromTotals = (date, totals, { endDate = date } = {}) => {
-    const credits = n(totals.credits);
-    const tokens = tokenTotal(totals);
-    return {
-      row: { date, totals },
-      date,
-      endDate,
-      credits,
-      usd: credits * CONFIG.USD_PER_CREDIT,
-      tokens,
-      inputTokens: tokenInput(totals),
-      cachedInputTokens: n(totals.cached_text_input_tokens),
-      uncachedInputTokens: n(totals.uncached_text_input_tokens),
-      outputTokens: n(totals.text_output_tokens),
-      cacheRatio: cacheRatio(totals),
-      turns: n(totals.turns),
-    };
-  };
-
-  const emptyUsageTotals = () => ({
-    credits: 0,
-    turns: 0,
-    threads: 0,
-    text_total_tokens: 0,
-    cached_text_input_tokens: 0,
-    uncached_text_input_tokens: 0,
-    text_output_tokens: 0,
-  });
-
-  const addUsageTotals = (target, totals = {}) => {
-    target.credits += n(totals.credits);
-    target.turns += n(totals.turns);
-    target.threads += n(totals.threads);
-    target.text_total_tokens += tokenTotal(totals);
-    target.cached_text_input_tokens += n(totals.cached_text_input_tokens);
-    target.uncached_text_input_tokens += n(totals.uncached_text_input_tokens);
-    target.text_output_tokens += n(totals.text_output_tokens);
-  };
-
-  const dateFromKey = (dateKey) => new Date(`${dateKey}T12:00:00`);
-  const dateKeyAdd = (dateKey, days) => domain.localDate(domain.addDays(dateFromKey(dateKey), days));
-  const daysBetween = (startDate, endDate) =>
-    Math.round((dateFromKey(endDate).getTime() - dateFromKey(startDate).getTime()) / 86400000);
-  const minDateKey = (...keys) => keys.filter(Boolean).sort()[0];
-  const maxDateKey = (...keys) => keys.filter(Boolean).sort().at(-1);
-  const weekStartDateKey = (dateKey) => {
-    const date = dateFromKey(dateKey);
-    const daysSinceMonday = (date.getDay() + 6) % 7;
-    return domain.localDate(domain.addDays(date, -daysSinceMonday));
-  };
-
-  const isCodexMeterOwned = (element) =>
-    Boolean(element?.closest?.(`#${IDS.overlay}, #${IDS.button}, #${CHART_IDS.controls}, #${CHART_IDS.view}`));
-
-  const renderMeterChart = (rows, chartWidth = 952) => {
-    const width = Math.max(360, Math.round(chartWidth));
-    const height = 220;
-    const plot = { left: 40, right: 20, top: 29, bottom: 30 };
-    const plotWidth = width - plot.left - plot.right;
-    const plotHeight = height - plot.top - plot.bottom;
-    const values = rows.map((row) => meterMetricTotal(row));
-    const maxValue = Math.max(...values, 1);
-    const slot = plotWidth / rows.length;
-    const maxBarWidth = rows.length <= 8 ? 120 : rows.length <= 14 ? 72 : 28;
-    const barWidth = Math.max(3, Math.min(maxBarWidth, slot * 0.78));
-    const bandWidth = Math.max(barWidth + 10, Math.min(slot, slot * 0.9));
-    const barRadius = 3;
-    const axisX = 22;
-    const firstTickX = plot.left + (slot - barWidth) / 2 + 1.5;
-    const lastTickX = width - plot.right - (slot - barWidth) / 2 - 1.5;
-    const squarePath = (x, y, w, h) =>
-      `M${x.toFixed(2)},${y.toFixed(2)}H${(x + w).toFixed(2)}V${(y + h).toFixed(2)}H${x.toFixed(2)}Z`;
-    const roundedTopPath = (x, y, w, h) => {
-      const radius = Math.min(barRadius, w / 2, h);
-      if (radius <= 0.25) return squarePath(x, y, w, h);
-      return [
-        `M${x.toFixed(2)},${(y + h).toFixed(2)}`,
-        `L${x.toFixed(2)},${(y + radius).toFixed(2)}`,
-        `Q${x.toFixed(2)},${y.toFixed(2)} ${(x + radius).toFixed(2)},${y.toFixed(2)}`,
-        `H${(x + w - radius).toFixed(2)}`,
-        `Q${(x + w).toFixed(2)},${y.toFixed(2)} ${(x + w).toFixed(2)},${(y + radius).toFixed(2)}`,
-        `V${(y + h).toFixed(2)}Z`,
-      ].join("");
-    };
-    const bars = rows
-      .map((row, index) => {
-        const x = plot.left + slot * index + (slot - barWidth) / 2;
-        const total = values[index];
-        const hitHeight = total > 0 ? Math.max(2, (total / maxValue) * plotHeight) : 0;
-        const slotX = plot.left + slot * index;
-        const displaySegments = meterMetricSeries(row)
-          .filter((series) => series.value > 0 && total > 0)
-          .map((series) => ({
-            ...series,
-            height: (series.value / total) * hitHeight,
-          }))
-          .filter((series) => series.height >= 0.35);
-        let yCursor = plot.top + plotHeight;
-        const segments = displaySegments
-          .map((series, segmentIndex) => {
-            const isTopSegment = segmentIndex === displaySegments.length - 1;
-            yCursor -= series.height;
-            const y = Math.max(plot.top, yCursor);
-            const path = isTopSegment
-              ? roundedTopPath(x, y, barWidth, series.height)
-              : squarePath(x, y, barWidth, series.height);
-            return `
-              <path
-                class="cqm-meter-chart-bar-segment"
-                data-index="${index}"
-                data-series="${series.key}"
-                d="${path}"
-                style="--cqm-series-color:${escapeHtml(series.color)}"
-              />
-            `;
-          })
-          .join("");
-        const hitY = plot.top + plotHeight - hitHeight;
-        const bandX = slotX + (slot - bandWidth) / 2;
-        return `
-          ${segments}
-          <rect
-            class="cqm-meter-chart-hit"
-            data-index="${index}"
-            data-band-x="${bandX.toFixed(2)}"
-            data-band-width="${bandWidth.toFixed(2)}"
-            data-band-y="${plot.top.toFixed(2)}"
-            data-band-height="${plotHeight.toFixed(2)}"
-            x="${slotX.toFixed(2)}"
-            y="${plot.top.toFixed(2)}"
-            width="${slot.toFixed(2)}"
-            height="${plotHeight.toFixed(2)}"
-          />
-        `;
-      })
-      .join("");
-    const maxLabel = formatMeterMetricValue(maxValue);
-    return `
-      <svg class="cqm-meter-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Codex Meter">
-        <line class="cqm-meter-axis-line" x1="${plot.left}" x2="${width - plot.right}" y1="${plot.top + plotHeight}" y2="${plot.top + plotHeight}" />
-        <rect class="cqm-meter-chart-hover-band" hidden />
-        <text class="cqm-meter-axis-label" data-axis="y" x="${axisX}" y="4" text-anchor="start"><tspan x="${axisX}" dy="0.355em">${escapeHtml(maxLabel)}</tspan></text>
-        <text class="cqm-meter-axis-label" data-axis="y" x="${axisX}" y="${plot.top + plotHeight}" text-anchor="start"><tspan x="${axisX}" dy="0.355em">0</tspan></text>
-        ${bars}
-        <text class="cqm-meter-axis-label" x="${firstTickX.toFixed(2)}" y="${height - 12}">${escapeHtml(formatAxisDate(rows[0].date))}</text>
-        <text class="cqm-meter-axis-label" x="${lastTickX.toFixed(2)}" y="${height - 12}" text-anchor="end">${escapeHtml(formatAxisDate(rows.at(-1).endDate || rows.at(-1).date))}</text>
-      </svg>
-      <div class="cqm-meter-chart-legend">
-        ${meterMetricLegend()
-          .map((series) => `<span><i style="--cqm-series-color:${escapeHtml(series.color)}"></i>${escapeHtml(series.label)}</span>`)
-          .join("")}
-      </div>
-      <div class="cqm-meter-chart-tooltip" hidden></div>
-    `;
-  };
-
-  const meterMetricSeries = (row) => {
-    if (meterChartMetric === CHART_METRICS.tokens) {
-      const components = [
-        { ...meterTokenSeries()[0], value: n(row.uncachedInputTokens) },
-        { ...meterTokenSeries()[1], value: n(row.cachedInputTokens) },
-        { ...meterTokenSeries()[2], value: n(row.outputTokens) },
-      ];
-      const componentTotal = sumValues(components.map((series) => series.value));
-      if (componentTotal > 0) {
-        const residual = Math.max(0, n(row.tokens) - componentTotal);
-        if (residual > 0) components[2].value += residual;
-        return components;
-      }
-      return [{ ...meterTokenSeries()[0], value: n(row.tokens) }];
-    }
-    if (meterChartMetric === CHART_METRICS.usd) {
-      return [{ key: "usd", label: t("table.usd"), color: meterMetricColors[CHART_METRICS.usd], value: n(row.usd) }];
-    }
-    if (meterChartMetric === CHART_METRICS.turns) {
-      return [{ key: "turns", label: t("table.turns"), color: meterMetricColors[CHART_METRICS.turns], value: n(row.turns) }];
-    }
-    return [{ key: "credits", label: t("table.credits"), color: meterMetricColors[CHART_METRICS.credits], value: n(row.credits) }];
-  };
-
-  const meterMetricTotal = (row) => {
-    if (meterChartMetric === CHART_METRICS.tokens) {
-      const componentTotal = n(row.uncachedInputTokens) + n(row.cachedInputTokens) + n(row.outputTokens);
-      return Math.max(n(row.tokens), componentTotal);
-    }
-    return sumValues(meterMetricSeries(row).map((series) => series.value));
-  };
-
-  const meterMetricLegend = () => {
-    if (meterChartMetric === CHART_METRICS.tokens) return meterTokenSeries();
-    const current = currentMeterMetricOption();
-    return [{ key: current.key, label: current.label, color: current.color }];
-  };
-
-  const formatMeterMetricValue = (value) => {
-    if (meterChartMetric === CHART_METRICS.tokens) return fmtNum(value);
-    if (meterChartMetric === CHART_METRICS.usd) return fmtUsd(value / CONFIG.USD_PER_CREDIT);
-    if (meterChartMetric === CHART_METRICS.turns) return String(Math.round(value));
-    return fmtCredits(value, value >= 100 ? 0 : 1);
-  };
-
-  const formatAxisDate = (dateKey) => {
-    const date = new Date(`${dateKey}T12:00:00`);
-    try {
-      return new Intl.DateTimeFormat(getPageLocale(), { month: "numeric", day: "numeric" }).format(date);
-    } catch {
-      return dateKey;
-    }
-  };
-
-  const formatTooltipDate = (dateKey) => {
-    const date = new Date(`${dateKey}T12:00:00`);
-    try {
-      return new Intl.DateTimeFormat(getPageLocale(), {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      }).format(date);
-    } catch {
-      return dateKey;
-    }
-  };
-
-  const formatMeterTooltipDate = (row) => {
-    if (!row?.endDate || row.endDate === row.date) return formatTooltipDate(row?.date);
-    return `${formatTooltipDate(row.date)} - ${formatTooltipDate(row.endDate)}`;
-  };
-
-  const handleMeterChartPointerMove = (event) => {
-    const bar = event.target.closest?.(".cqm-meter-chart-bar-segment, .cqm-meter-chart-hit");
-    const view = document.getElementById(CHART_IDS.view);
-    if (!bar || !view?.contains(bar)) {
-      hideMeterChartTooltip();
-      return;
-    }
-    const row = renderedMeterChartRows[Number(bar.dataset.index)];
-    if (!row) {
-      hideMeterChartTooltip();
-      return;
-    }
-    showMeterChartHoverBand(view, bar);
-    showMeterChartTooltip(view, row, event.clientX, event.clientY);
-  };
-
-  const showMeterChartHoverBand = (view, bar) => {
-    const band = view.querySelector(".cqm-meter-chart-hover-band");
-    if (!band) return;
-    const hit = bar.matches(".cqm-meter-chart-hit")
-      ? bar
-      : view.querySelector(`.cqm-meter-chart-hit[data-index="${bar.dataset.index}"]`);
-    if (!hit) return;
-    band.setAttribute("x", hit.dataset.bandX || hit.getAttribute("x") || "0");
-    band.setAttribute("y", hit.dataset.bandY || "0");
-    band.setAttribute("width", hit.dataset.bandWidth || hit.getAttribute("width") || "0");
-    band.setAttribute("height", hit.dataset.bandHeight || hit.getAttribute("height") || "0");
-    band.removeAttribute("hidden");
-  };
-
-  const showMeterChartTooltip = (view, row, clientX, clientY) => {
-    const tooltip = view.querySelector(".cqm-meter-chart-tooltip");
-    if (!tooltip) return;
-    const tooltipKey = `${meterChartMetric}:${row.date}:${row.endDate || ""}`;
-    if (tooltip.dataset.key !== tooltipKey) {
-      tooltip.dataset.key = tooltipKey;
-      setHtmlIfChanged(tooltip, renderMeterChartTooltip(row));
-    }
-    tooltip.hidden = false;
-    const rect = view.getBoundingClientRect();
-    const tooltipRect = tooltip.getBoundingClientRect();
-    const x = Math.min(Math.max(16, clientX - rect.left + 16), Math.max(16, rect.width - tooltipRect.width - 16));
-    const y = Math.min(Math.max(16, clientY - rect.top - tooltipRect.height - 12), Math.max(16, rect.height - tooltipRect.height - 16));
-    tooltip.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-  };
-
-  const renderMeterChartTooltip = (row) => {
-    const seriesRows = meterMetricSeries(row).filter((series) => series.value > 0);
-    const total = meterMetricTotal(row);
-    return `
-      <div class="cqm-meter-tooltip-title">${escapeHtml(formatMeterTooltipDate(row))}</div>
-      <div class="cqm-meter-tooltip-grid">
-        ${seriesRows
-          .map(
-            (series) => `
-              <span><i style="--cqm-series-color:${escapeHtml(series.color)}"></i>${escapeHtml(series.label)}</span>
-              <strong>${escapeHtml(formatMeterMetricValue(series.value))}</strong>
-            `,
-          )
-          .join("")}
-        ${
-          seriesRows.length > 1
-            ? `<span class="cqm-meter-tooltip-total">${escapeHtml(t("table.total"))}</span><strong class="cqm-meter-tooltip-total">${escapeHtml(formatMeterMetricValue(total))}</strong>`
-            : ""
-        }
-      </div>
-    `;
-  };
-
-  const hideMeterChartTooltip = () => {
-    const tooltip = document.querySelector(`#${CHART_IDS.view} .cqm-meter-chart-tooltip`);
-    if (tooltip) tooltip.hidden = true;
-    const band = document.querySelector(`#${CHART_IDS.view} .cqm-meter-chart-hover-band`);
-    if (band) band.setAttribute("hidden", "");
-  };
-
   const ensureChromeRuntimeListener = () => {
     if (ensureChromeRuntimeListener.didInstall) return;
     ensureChromeRuntimeListener.didInstall = true;
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === "CQC_OPEN_PANEL") {
+        hydrateCachedReport()
+          .then((report) => {
+            ensureUi();
+            if (report) renderReport(report);
+            openPanel();
+            sendResponse({ ok: true });
+          })
+          .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
+        return true;
+      }
       if (message?.type !== "CQC_RUN_ANALYSIS") return false;
       runAnalysis({ openPanel: message.openPanel !== false })
         .then((report) => sendResponse({ ok: true, report: compactReport(report) }))
@@ -2061,8 +860,8 @@
     const statusIcon = kind === "error" ? "alert" : kind === "loading" ? "loader" : "check";
     const html = `${icon(statusIcon)}<span>${escapeHtml(message)}</span>`;
     if (status) {
-      setHtmlIfChanged(status, html);
-      setDatasetIfChanged(status, "kind", kind);
+      if (status.innerHTML !== html) status.innerHTML = html;
+      if (status.dataset.kind !== kind) status.dataset.kind = kind;
     }
   };
 
@@ -2081,36 +880,6 @@
     if (panel) setAttributeIfChanged(panel, "data-open", "false");
   };
 
-  const updateVisibility = () => {
-    const visible = isAnalyticsRoute();
-    if (visible) {
-      ensureUi();
-      if (meterSettings.showPageButton) {
-        ensureDetailButton();
-      } else {
-        removeDetailButton();
-      }
-      if (meterSettings.showChartControls) {
-        ensureUsageChartSwitch();
-      } else {
-        removeUsageChartSwitch();
-      }
-      if (ENABLE_CHART_TOOLTIP_ENHANCER) {
-        installChartTooltipEnhancer();
-        warmChartReport();
-      } else {
-        clearChartTooltipDetails();
-      }
-    }
-    if (!visible) {
-      closePanel();
-      removeDetailButton();
-      removeUsageChartSwitch();
-      clearChartTooltipDetails();
-      warmChartReport.didSchedule = false;
-    }
-  };
-
   const runAnalysis = async ({ openPanel: shouldOpenPanel = true } = {}) => {
     if (!isAnalyticsRoute()) {
       throw new Error(t("openAnalyticsFirst"));
@@ -2121,41 +890,84 @@
     if (shouldOpenPanel) openPanel();
     if (!latestReport) renderLoadingSkeleton(t("skeletonLoading"));
     setStatus(t("skeletonLoading"), "loading");
-    setTriggerButton("refresh", t("trigger.loading"));
 
     try {
       latestReport = await reportService.refreshReport();
       renderReport(latestReport);
-      renderMeterChartView();
-      if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
       return latestReport;
     } catch (error) {
       setStatus(error.message || String(error), "error");
       throw error;
     } finally {
       isRunning = false;
-      setTriggerButton("gauge", t("trigger.label"));
     }
-  };
-
-  const setTriggerButton = (iconName, label) => {
-    const button = document.getElementById(IDS.button);
-    if (!button) return;
-    if (button.dataset.triggerIcon === iconName && button.dataset.triggerLabel === label) return;
-    button.innerHTML = `${icon(iconName)}<span>${escapeHtml(label)}</span>`;
-    button.dataset.triggerIcon = iconName;
-    button.dataset.triggerLabel = label;
   };
 
   const renderReport = (report) => {
     const body = document.querySelector(`#${IDS.panel} .cqc-body`);
     if (!body) return;
     body.innerHTML = renderReportBody(report);
+    bindQuotaHistoryActions(body, report);
+  };
+
+  const renderQuotaHistory = (report) => {
+    const rows = window.CodexMeterQuotaHistory.buildRows(report);
+    const number = (value, digits = 3) => value == null ? "—" : value.toLocaleString(getLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return `<section class="cqc-quota-history" aria-label="每日额度折算">
+      <div class="cqc-section-title"><span>每日额度折算</span><span>日期按 UTC · 最近 ${CONFIG.LOOKBACK_DAYS} 天</span></div>
+      <p class="cqc-hint">折算100%对应Credits = 当日Credits ÷（当日消耗百分比 / 100）。百分比来自官方历史接口，保留超过100%的值；缺失或无法计算时显示 —。</p>
+      <p class="cqc-hint">这是历史分析百分比隐含的换算值，不保证等于当时套餐周额度上限。接口可能按统一口径换算历史数据。</p>
+      <p class="cqc-hint">周期仅为按天推测：手动/全局重置优先，其次起点+7天或累计达到100%后的次日。重置当天不拆分，可能跨周期；未记录的全局重置、闲置和采样缺失都会影响标记。周期标记不参与每日折算。</p>
+      ${(report.historyWarnings || []).map(w => `<p class="cqc-hint" role="status">${escapeHtml(w)}</p>`).join("")}
+      ${!report.percentageData ? '<p class="cqc-hint">尚无历史百分比，请刷新重试。</p>' : ""}
+      <div class="cqc-table-wrap"><table class="cqc-table cqc-quota-table">
+      <thead><tr><th>日期（UTC）</th><th>每日Credits</th><th>每日消耗百分比</th><th>折算100%对应Credits</th><th>推测周期 / 重置</th></tr></thead>
+      <tbody>${rows.slice().reverse().map(row => `<tr><td>${escapeHtml(row.date)}</td><td class="cqc-mono">${number(row.credits)}</td><td class="cqc-mono">${number(row.percent, 6)}${row.percent == null ? "" : "%"}</td><td class="cqc-mono">${number(row.fullCredits)}</td><td>${escapeHtml(row.period)}${row.notes ? `<br><strong>${escapeHtml(row.notes)}</strong>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">暂无日用量数据</td></tr>'}</tbody></table></div>
+      <details class="cqc-reset-editor"><summary>记录全局重置（如 Tibo 重置） · ${(report.globalResets || []).length} 条</summary>
+        <p class="cqc-hint">仅保存到本机当前账号。支持 Unix 秒/毫秒时间戳，或带时区时间，如 2026-09-12T09:00:00+08:00。按 UTC 日期标记。</p>
+        <form data-cqc-reset-form><label>全局重置时间 <input name="resetTime" required placeholder="Unix 时间戳或带时区的 ISO 时间" aria-label="全局重置时间"></label><button type="submit" class="cqc-text-button">保存记录</button></form>
+        <p data-cqc-reset-status role="status"></p>
+        <ul>${(report.globalResets || []).map(row => `<li><time>${escapeHtml(row.at)}</time> <button type="button" class="cqc-text-button" data-cqc-remove-reset="${escapeHtml(row.at)}">删除记录</button></li>`).join("")}</ul>
+      </details></section>`;
+  };
+
+  const bindQuotaHistoryActions = (body, report) => {
+    const status = body.querySelector("[data-cqc-reset-status]");
+    let saving = false;
+    const save = async (update) => {
+      if (saving) return;
+      saving = true;
+      try {
+        // Read fresh records so other page refreshes do not resurrect deleted entries.
+        const current = await reportRepository.loadGlobalResets(report.accountScope);
+        const rows = update(current).sort((a, b) => a.at.localeCompare(b.at));
+        await reportRepository.saveGlobalResets(report.accountScope, rows);
+        report.globalResets = rows;
+        if (latestReport?.accountScope === report.accountScope) latestReport.globalResets = rows;
+        renderReport(latestReport || report);
+        const editor = document.querySelector(`#${IDS.panel} .cqc-reset-editor`);
+        if (editor) editor.open = true;
+        const result = document.querySelector(`#${IDS.panel} [data-cqc-reset-status]`);
+        if (result) result.textContent = "记录已保存，周期标记已更新。";
+      } catch (error) { if (status) status.textContent = error.message || "保存失败，请重试。"; }
+      finally { saving = false; }
+    };
+    body.querySelector("[data-cqc-reset-form]")?.addEventListener("submit", event => {
+      event.preventDefault();
+      try {
+        const at = window.CodexMeterQuotaHistory.parseResetTime(new FormData(event.currentTarget).get("resetTime"));
+        void save(rows => rows.some(row => row.at === at) ? rows : [...rows, { at }]);
+      } catch (error) { status.textContent = error.message; }
+    });
+    body.querySelectorAll("[data-cqc-remove-reset]").forEach(button => button.addEventListener("click", () => {
+      void save(rows => rows.filter(row => row.at !== button.dataset.cqcRemoveReset));
+    }));
   };
 
   const renderReportBody = (report) => `
       <div class="cqc-status">${icon("check")}<span>${escapeHtml(t("updated", { time: report.capturedAtLocal }))}</span></div>
       ${renderSummaryCards(report)}
+      ${renderQuotaHistory(report)}
       ${renderDailySection(
         t("sections.current"),
         report.currentCycleList,
@@ -2438,21 +1250,6 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const ensurePassiveReport = ({ allowRefresh = true } = {}) => {
-    if (latestReport) {
-      if (allowRefresh) refreshPassiveReport();
-      return Promise.resolve(latestReport);
-    }
-    return hydrateCachedReport().then((cached) => {
-      if (cached) {
-        if (allowRefresh) refreshPassiveReport();
-        return cached;
-      }
-      if (allowRefresh) return refreshPassiveReport({ force: true });
-      return null;
-    });
-  };
-
   const hydrateCachedReport = () => {
     if (latestReport) return Promise.resolve(latestReport);
     if (!cacheHydrationPromise) {
@@ -2470,545 +1267,47 @@
     return cacheHydrationPromise;
   };
 
-  const refreshPassiveReport = ({ force = false } = {}) => {
-    if (isRunning || !isAnalyticsRoute()) return Promise.resolve(latestReport);
-    const now = Date.now();
-    if (!force && now - lastPassiveRefreshAt < PASSIVE_REFRESH_MIN_INTERVAL_MS) {
-      return Promise.resolve(latestReport);
+  const showCachedPanel = async () => {
+    // Open immediately; cache parsing/rendering must not prevent access to Refresh.
+    openPanel();
+    const report = await hydrateCachedReport();
+    ensureUi();
+    if (report) {
+      renderReport(report);
+      setStatus(t("cachedNotice"), "info");
     }
-    if (!passiveReportPromise) {
-      lastPassiveRefreshAt = now;
-      passiveReportPromise = reportService
-        .refreshReport()
-        .then((report) => {
-          latestReport = report;
-          if (usageChartMode === CHART_MODES.meter) renderMeterChartView();
-          if (ENABLE_CHART_TOOLTIP_ENHANCER) scheduleChartTooltipEnhance();
-          return report;
-        })
-        .catch(() => latestReport)
-        .finally(() => {
-          passiveReportPromise = null;
-        });
-    }
-    return passiveReportPromise;
+    openPanel();
   };
 
-  const warmChartReport = () => {
-    if (warmChartReport.didSchedule) return;
-    warmChartReport.didSchedule = true;
-    hydrateCachedReport().then((cached) => {
-      if (cached) scheduleChartTooltipEnhance();
-      const run = () => refreshPassiveReport();
-      if ("requestIdleCallback" in window) {
-        window.requestIdleCallback(run, { timeout: 1000 });
-      } else {
-        window.setTimeout(run, 250);
-      }
-    });
-  };
-
-  const installChartTooltipEnhancer = () => {
-    if (!ENABLE_CHART_TOOLTIP_ENHANCER) return;
-    if (installChartTooltipEnhancer.didInstall) return;
-    installChartTooltipEnhancer.didInstall = true;
-    document.addEventListener(
-      "pointermove",
-      (event) => {
-        chartPointer = { x: event.clientX, y: event.clientY };
-        scheduleChartTooltipEnhance();
-      },
-      { passive: true },
-    );
-    window.addEventListener("scroll", clearChartTooltipDetails, { passive: true });
-  };
-
-  const scheduleChartTooltipEnhance = () => {
-    if (!ENABLE_CHART_TOOLTIP_ENHANCER) return;
-    if (!isAnalyticsRoute()) return;
-    if (chartTooltipFrame) return;
-    chartTooltipFrame = requestAnimationFrame(() => {
-      chartTooltipFrame = 0;
-      enhanceChartTooltip();
-    });
-  };
-
-  const enhanceChartTooltip = () => {
-    const tooltip = findOfficialChartTooltip();
-    if (!tooltip) {
-      clearChartTooltipDetails();
+  const syncPageButton = () => {
+    const existing = document.getElementById(IDS.button);
+    if (!isAnalyticsRoute()) {
+      existing?.remove();
+      closePanel();
       return;
     }
-    const host = findOfficialTooltipCard(tooltip) || tooltip;
-    host.classList.add("cqc-chart-tooltip-host");
-    clearChartTooltipDetails(host);
-    if (!latestReport) {
-      renderPendingTooltipDetail(tooltip, host);
-      ensurePassiveReport({ allowRefresh: true }).then((report) => {
-        if (report) scheduleChartTooltipEnhance();
-      });
-      return;
-    }
-
-    const tooltipText = officialTooltipText(tooltip);
-    const rows = rowsForTooltipText(tooltipText, latestReport.dailyList);
-    if (!rows.length) return;
-
-    const key = rows.map((row) => row.date).join(",");
-
-    const existing = host.querySelector(":scope > .cqc-chart-tooltip-detail");
-    if (existing?.dataset.key === key) return;
-
-    const detail = existing || document.createElement("div");
-    detail.className = "cqc-chart-tooltip-detail";
-    detail.dataset.key = key;
-    detail.innerHTML = renderChartTooltipDetail(rows);
-    applyOfficialTooltipTokens(detail, host);
-    if (!existing) host.appendChild(detail);
-  };
-
-  const renderPendingTooltipDetail = (tooltip, host) => {
-    clearChartTooltipDetails(host);
-    let detail = host.querySelector(":scope > .cqc-chart-tooltip-detail");
-    if (!detail) {
-      detail = document.createElement("div");
-      detail.className = "cqc-chart-tooltip-detail";
-      host.appendChild(detail);
-    }
-    if (detail.dataset.key === "pending") return;
-    detail.dataset.key = "pending";
-    detail.innerHTML = `<div class="cqc-chart-tooltip-title">${escapeHtml(t("tooltipPending"))}</div>`;
-    applyOfficialTooltipTokens(detail, host);
-  };
-
-  const clearChartTooltipDetails = (exceptHost = null) => {
-    document.querySelectorAll(".cqc-chart-tooltip-detail").forEach((detail) => {
-      if (!exceptHost || detail.parentElement !== exceptHost) detail.remove();
+    if (existing) return;
+    const button = document.createElement("button");
+    button.id = IDS.button;
+    button.type = "button";
+    button.textContent = "Codex Meter";
+    button.addEventListener("click", () => {
+      showCachedPanel().catch((error) => setStatus(error.message || String(error), "error"));
     });
-    document.querySelectorAll(".cqc-chart-tooltip-host").forEach((host) => {
-      if (host !== exceptHost && !host.querySelector(".cqc-chart-tooltip-detail")) {
-        host.classList.remove("cqc-chart-tooltip-host");
-      }
-    });
-  };
-
-  const findOfficialTooltipCard = (tooltip) => {
-    const candidates = [tooltip, ...tooltip.querySelectorAll("div,section,article,ul,li")]
-      .filter(isVisibleElement)
-      .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
-      .filter(isChartTooltipCandidate)
-      .filter((element) => !hasChartTooltipCandidateChild(element));
-    return candidates.sort((a, b) => tooltipCardScore(b, tooltip) - tooltipCardScore(a, tooltip))[0] || null;
-  };
-
-  const tooltipCardScore = (element, root) => {
-    const rect = element.getBoundingClientRect();
-    const area = rect.width * rect.height;
-    const style = getComputedStyle(element);
-    const hasSurface =
-      style.backgroundColor &&
-      style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
-      style.backgroundColor !== "transparent";
-    const borderWidth =
-      parseFloat(style.borderTopWidth) +
-      parseFloat(style.borderRightWidth) +
-      parseFloat(style.borderBottomWidth) +
-      parseFloat(style.borderLeftWidth);
-    const padding =
-      parseFloat(style.paddingTop) +
-      parseFloat(style.paddingRight) +
-      parseFloat(style.paddingBottom) +
-      parseFloat(style.paddingLeft);
-    let score = 0;
-    if (element !== root) score += 30;
-    if (hasSurface) score += 20;
-    if (style.boxShadow && style.boxShadow !== "none") score += 12;
-    if (parseFloat(style.borderRadius) > 0) score += 8;
-    if (borderWidth > 0) score += 6;
-    if (padding > 0) score += 4;
-    score += Math.max(0, 20 - area / 20000);
-    return score;
-  };
-
-  const findOfficialChartTooltip = () => {
-    const selectors = [
-      ".recharts-tooltip-wrapper",
-      "[role='tooltip']",
-      "[class*='tooltip']",
-      "[class*='Tooltip']",
-    ].join(",");
-    const pointCandidates = chartPointer
-      ? document
-          .elementsFromPoint(chartPointer.x, chartPointer.y)
-          .flatMap((element) => [
-            element,
-            ...Array.from(element.querySelectorAll?.("div,section,article,ul,li") || []),
-          ])
-      : [];
-    const directCandidates = [...document.querySelectorAll(selectors)].flatMap((element) => [
-      element,
-      ...element.querySelectorAll("div,section,article,ul,li"),
-    ]);
-    const candidates = [...new Set([...pointCandidates, ...directCandidates])];
-    return candidates
-      .filter(isVisibleElement)
-      .filter((element) => !element.closest(`#${IDS.overlay}, .cqc-chart-tooltip-detail`))
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        return rect.width >= 160 && rect.width <= 640 && rect.height >= 56 && rect.height <= 560;
-      })
-      .filter(isChartTooltipCandidate)
-      .filter((element) => !hasChartTooltipCandidateChild(element))
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return ar.width * ar.height - br.width * br.height;
-      })[0] || null;
-  };
-
-  const isChartTooltipCandidate = (element) => {
-    const text = officialTooltipText(element);
-    return hasTooltipDate(text) && /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(text);
-  };
-
-  const hasChartTooltipCandidateChild = (element) =>
-    [...element.children].some((child) => isVisibleElement(child) && isChartTooltipCandidate(child));
-
-  const hasTooltipDate = (text) => {
-    if (!text) return false;
-    if (dateKeysFromTooltipText(text).length) return true;
-    if (!latestReport?.dailyList?.length) {
-      return (
-        /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(text) ||
-        /\b\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?\b/.test(text) ||
-        /\b\d{1,2}月\d{1,2}日\b/.test(text)
-      );
-    }
-    return latestReport?.dailyList?.some((row) =>
-      dateVariants(row.date).some((variant) => textContainsDateVariant(text, variant)),
-    );
-  };
-
-  const rowsForTooltipText = (text, rows) => {
-    if (!text || !Array.isArray(rows)) return [];
-    const keys = dateKeysFromTooltipText(text);
-    if (keys.length) {
-      const exact = rows.filter((row) => keys.includes(row.date));
-      if (exact.length <= 1) return exact;
-      const sortedExact = [...exact].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-      const firstExact = sortedExact[0]?.date;
-      const lastExact = sortedExact.at(-1)?.date;
-      if (!firstExact || !lastExact) return sortedExact;
-      return rows
-        .filter((row) => row.date >= firstExact && row.date <= lastExact)
-        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    }
-    const matches = rows.filter((row) =>
-      dateVariants(row.date).some((variant) => textContainsDateVariant(text, variant)),
-    );
-    if (matches.length <= 1) return matches;
-    const sorted = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    const first = sorted[0]?.date;
-    const last = sorted.at(-1)?.date;
-    if (!first || !last) return sorted;
-    return rows
-      .filter((row) => row.date >= first && row.date <= last)
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  };
-
-  const normalizedText = (value) =>
-    String(value || "")
-      .toLowerCase()
-      .replaceAll(",", "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const dateKeysFromTooltipText = (text) => {
-    const value = String(text || "");
-    const keys = [];
-    const addKey = (year, month, day) => {
-      const y = Number(year);
-      const m = Number(month);
-      const d = Number(day);
-      if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return;
-      if (y < 2000 || m < 1 || m > 12 || d < 1 || d > 31) return;
-      keys.push(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
-    };
-
-    value.replace(/\b(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?\b/g, (_match, year, month, day) => {
-      addKey(year, month, day);
-      return _match;
-    });
-
-    const monthNames = {
-      jan: 1,
-      january: 1,
-      feb: 2,
-      february: 2,
-      mar: 3,
-      march: 3,
-      apr: 4,
-      april: 4,
-      may: 5,
-      jun: 6,
-      june: 6,
-      jul: 7,
-      july: 7,
-      aug: 8,
-      august: 8,
-      sep: 9,
-      sept: 9,
-      september: 9,
-      oct: 10,
-      october: 10,
-      nov: 11,
-      november: 11,
-      dec: 12,
-      december: 12,
-    };
-    value.replace(
-      /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b/gi,
-      (_match, monthName, day, year) => {
-        addKey(year, monthNames[String(monthName).toLowerCase()], day);
-        return _match;
-      },
-    );
-
-    const reportYears = [
-      ...new Set((latestReport?.dailyList || []).map((row) => String(row.date || "").slice(0, 4))),
-    ].filter(Boolean);
-    if (reportYears.length === 1) {
-      value.replace(/\b(\d{1,2})月(\d{1,2})日\b/g, (_match, month, day) => {
-        addKey(reportYears[0], month, day);
-        return _match;
-      });
-    }
-
-    return [...new Set(keys)];
-  };
-
-  const officialTooltipText = (element) => {
-    const collect = (node) => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
-      if (!(node instanceof Element) || node.matches(".cqc-chart-tooltip-detail")) return "";
-      return [...node.childNodes].map(collect).join(" ");
-    };
-    return collect(element).replace(/\s+/g, " ").trim();
-  };
-
-  const applyOfficialTooltipTokens = (detail, host) => {
-    const row = [...host.querySelectorAll("*")]
-      .filter((element) => !element.closest(".cqc-chart-tooltip-detail"))
-      .find((element) => /\b(Desktop App|CLI|Cloud|Exec|Other)\b/.test(elementText(element)));
-    const style = getComputedStyle(row || host);
-    const fontSize = parseFloat(style.fontSize);
-    const lineHeight = parseFloat(style.lineHeight);
-    const nextFontSize = Number.isFinite(fontSize) ? Math.max(12, Math.min(14, fontSize)) : 13;
-    const nextLineHeight = Number.isFinite(lineHeight)
-      ? Math.max(nextFontSize + 4, Math.min(20, lineHeight))
-      : nextFontSize + 4;
-    detail.style.setProperty("--cqc-tooltip-font-size", `${nextFontSize}px`);
-    detail.style.setProperty("--cqc-tooltip-line-height", `${nextLineHeight}px`);
-  };
-
-  const textContainsDateVariant = (text, variant) => {
-    const normalized = normalizedText(text);
-    const candidate = normalizedText(variant);
-    if (!candidate) return false;
-    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, "u").test(normalized);
-  };
-
-  const dateVariants = (dateKey) => {
-    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return [dateKey].filter(Boolean);
-    const [, year, paddedMonth, paddedDay] = match;
-    const month = String(Number(paddedMonth));
-    const day = String(Number(paddedDay));
-    const date = new Date(`${dateKey}T12:00:00`);
-    const locales = [
-      getPageLocale(),
-      "en-US",
-      "zh-CN",
-      "zh-TW",
-      "zh-HK",
-      "ja-JP",
-      "fr-FR",
-      "ru-RU",
-      "es-ES",
-      "de-DE",
-    ];
-    const intlVariants = locales.flatMap((locale) =>
-      [
-        { year: "numeric", month: "short", day: "numeric" },
-        { year: "numeric", month: "long", day: "numeric" },
-        { month: "short", day: "numeric" },
-        { month: "long", day: "numeric" },
-      ].map((options) => {
-        try {
-          return new Intl.DateTimeFormat(locale, options).format(date);
-        } catch {
-          return "";
-        }
-      }),
-    );
-    return [
-      dateKey,
-      `${year}-${month}-${day}`,
-      `${year}/${month}/${day}`,
-      `${month}/${day}/${year}`,
-      `${month}/${day}`,
-      `${year}年${month}月${day}日`,
-      `${month}月${day}日`,
-      ...intlVariants,
-    ].filter(Boolean);
-  };
-
-  const renderChartTooltipDetail = (rows) => {
-    const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    const stats = domain.getStats(sorted);
-    const dateLabel =
-      sorted.length === 1
-        ? sorted[0].date
-        : `${sorted[0]?.date || ""} - ${sorted.at(-1)?.date || ""}`;
-    return `
-      <div class="cqc-chart-tooltip-title">Codex Meter · ${escapeHtml(dateLabel)}</div>
-      <div class="cqc-chart-tooltip-grid">
-        <span>${escapeHtml(t("table.credits"))}</span><strong>${fmtCredits(stats.credits)}</strong>
-        <span>${escapeHtml(t("table.tokens"))}</span><strong>${fmtNum(stats.tokens)}</strong>
-        <span>${escapeHtml(t("table.inputTokens"))}</span><strong>${fmtNum(stats.inputTokens)}</strong>
-        <span>${escapeHtml(t("table.cache"))}</span><strong>${(stats.cacheRatio * 100).toFixed(0)}%</strong>
-        <span>${escapeHtml(t("table.usd"))}</span><strong>${escapeHtml(fmtUsd(stats.credits))}</strong>
-        <span>${escapeHtml(t("table.turns"))}</span><strong>${escapeHtml(stats.turns)}</strong>
-      </div>
-    `;
-  };
-
-  const installRouteObserver = () => {
-    if (installRouteObserver.didInstall) return;
-    installRouteObserver.didInstall = true;
-    let lastRoute = `${location.pathname}${location.search}${location.hash}`;
-    let scheduled = false;
-    const notify = () => {
-      if (scheduled) return;
-      scheduled = true;
-      window.setTimeout(() => {
-        scheduled = false;
-        lastRoute = `${location.pathname}${location.search}${location.hash}`;
-        updateVisibility();
-      }, 120);
-    };
-    const poll = () => {
-      const route = `${location.pathname}${location.search}${location.hash}`;
-      const routeChanged = route !== lastRoute;
-      const hasButton = Boolean(document.getElementById(IDS.button));
-      const hasChartSwitch = Boolean(document.getElementById(CHART_IDS.switcher));
-      const needsButton = isAnalyticsRoute() && meterSettings.showPageButton && !hasButton;
-      const needsChartSwitch = isAnalyticsRoute() && meterSettings.showChartControls && !hasChartSwitch;
-      const staleButton = !isAnalyticsRoute() && hasButton;
-      if (!routeChanged && !needsButton && !needsChartSwitch && !staleButton) return;
-      lastRoute = route;
-      notify();
-    };
-    const patch = (methodName) => {
-      const original = history[methodName];
-      history[methodName] = function patchedHistoryMethod(...args) {
-        const result = original.apply(this, args);
-        notify();
-        return result;
-      };
-    };
-    patch("pushState");
-    patch("replaceState");
-    window.addEventListener("popstate", notify);
-    window.__codexMeterMutationObserver?.disconnect?.();
-    window.__codexMeterMutationObserver = null;
-    window.clearInterval(window.__codexMeterRouteInterval);
-    window.__codexMeterRouteInterval = window.setInterval(poll, 1200);
-    window.addEventListener("visibilitychange", poll);
-  };
-
-  const installUsageChartControlSync = () => {
-    if (installUsageChartControlSync.didInstall) return;
-    installUsageChartControlSync.didInstall = true;
-    const onPossibleControlChange = (event) => {
-      if (!isAnalyticsRoute()) return;
-      if (!isOfficialAnalyticsControlTarget(event.target)) return;
-      scheduleUsageChartControlSync();
-    };
-    document.addEventListener("click", onPossibleControlChange, true);
-    document.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        onPossibleControlChange(event);
-      },
-      true,
-    );
-  };
-
-  const installUsageChartResizeSync = () => {
-    if (installUsageChartResizeSync.didInstall) return;
-    installUsageChartResizeSync.didInstall = true;
-    const sync = () => {
-      if (!isAnalyticsRoute() || usageChartResizeFrame) return;
-      usageChartResizeFrame = requestAnimationFrame(() => {
-        usageChartResizeFrame = 0;
-        ensureDetailButton();
-        ensureUsageChartSwitch();
-        if (usageChartMode === CHART_MODES.meter) renderMeterChartView();
-      });
-    };
-    window.addEventListener("resize", sync, { passive: true });
-    if ("ResizeObserver" in window) {
-      const observer = new ResizeObserver(sync);
-      observer.observe(document.documentElement);
-      window.__codexMeterResizeObserver?.disconnect?.();
-      window.__codexMeterResizeObserver = observer;
-    }
-  };
-
-  const isOfficialAnalyticsControlTarget = (target) => {
-    const element = target instanceof Element ? target : null;
-    if (!element || isCodexMeterOwned(element)) return false;
-    const action = element.closest("button,[role='combobox'],[role='option'],[role='menuitemradio']");
-    if (!action || isCodexMeterOwned(action)) return false;
-    if (action.closest("[role='dialog'], [data-radix-popper-content-wrapper]")) return true;
-    if (action.matches("button[role='combobox']")) return true;
-    if (action.getAttribute("role") === "option") return true;
-    const rangeGroup = action.parentElement;
-    if (!rangeGroup) return false;
-    const buttons = [...rangeGroup.children].filter((child) => child.matches?.("button"));
-    return buttons.length >= 3 && buttons.slice(0, 3).some((button) => button.getAttribute("aria-haspopup") === "dialog");
-  };
-
-  const scheduleUsageChartControlSync = () => {
-    window.clearTimeout(usageChartControlTimer);
-    const sync = () => {
-      usageChartControlTimer = 0;
-      if (!isAnalyticsRoute()) return;
-      ensureDetailButton();
-      ensureUsageChartSwitch();
-      if (usageChartMode === CHART_MODES.meter) renderMeterChartView();
-    };
-    usageChartControlTimer = window.setTimeout(sync, 180);
-    window.setTimeout(() => {
-      if (isAnalyticsRoute()) {
-        ensureUsageChartSwitch();
-        if (usageChartMode === CHART_MODES.meter) renderMeterChartView();
-      }
-    }, 520);
+    // Independent fixed entry: never insert into or modify official components.
+    document.documentElement.appendChild(button);
   };
 
   const init = () => {
     ensureChromeRuntimeListener();
-    installSettingsSync();
-    installRouteObserver();
-    installUsageChartControlSync();
-    installUsageChartResizeSync();
-    window.__codexQuotaCompassUpdateVisibility = updateVisibility;
-    updateVisibility();
-    loadMeterSettings();
+    syncPageButton();
+    // Inspect only the URL, not chart DOM. Remount only after a route change.
+    let lastRoute = location.href;
+    window.setInterval(() => {
+      if (location.href === lastRoute) return;
+      lastRoute = location.href;
+      syncPageButton();
+    }, 1000);
   };
 
   init();

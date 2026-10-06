@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const { CONFIG, DEFAULT_SETTINGS, ROUTES } = window.CodexMeterConfig;
+  const { CONFIG, ROUTES } = window.CodexMeterConfig;
   const domain = window.CodexMeterDomain;
   const reportRepository = window.CodexMeterReportRepository;
 
@@ -11,7 +11,7 @@
 
   const MESSAGES = {
     "zh-CN": {
-      subtitle: "页面内功能管理",
+      subtitle: "本地用量面板",
       sections: {
         display: "页面显示",
         chart: "默认图表",
@@ -57,7 +57,7 @@
       confirmClear: "清空所有本地快照？",
     },
     "en-US": {
-      subtitle: "In-page feature controls",
+      subtitle: "Local usage panel",
       sections: {
         display: "Page Display",
         chart: "Default Chart",
@@ -137,52 +137,17 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
 
-  const isValidChartMode = (mode) => mode === "source" || mode === "meter";
-
-  const normalizeSettings = (settings = {}) => ({
-    ...DEFAULT_SETTINGS,
-    ...settings,
-    defaultChartMode: isValidChartMode(settings.defaultChartMode)
-      ? settings.defaultChartMode
-      : DEFAULT_SETTINGS.defaultChartMode,
-  });
-
   const setStatus = (message, kind = "info") => {
     const el = $("#status");
     el.innerHTML = `${icon(kind === "error" ? "alert" : kind === "loading" ? "loader" : "check")}<span>${escapeHtml(message)}</span>`;
     el.dataset.kind = kind;
   };
 
-  const loadSettings = async () => {
-    const data = await chrome.storage.local.get(CONFIG.STORAGE_SETTINGS);
-    return normalizeSettings(data[CONFIG.STORAGE_SETTINGS]);
-  };
-
-  const saveSettings = async (patch) => {
-    const current = await loadSettings();
-    const next = normalizeSettings({ ...current, ...patch });
-    await chrome.storage.local.set({ [CONFIG.STORAGE_SETTINGS]: next });
-    renderSettings(next);
-    setStatus(t("status.saved"));
-  };
-
   const loadState = async () => {
     setStatus(t("status.loading"), "loading");
-    const [settings, data] = await Promise.all([loadSettings(), reportRepository.load()]);
-    renderSettings(settings);
+    const data = await reportRepository.load();
     renderSnapshots(data.latest, data.snapshots);
     setStatus(data.latest ? t("status.updated", { time: data.latest.capturedAtLocal || data.latest.capturedAt }) : t("status.noSnapshot"));
-  };
-
-  const renderSettings = (settings) => {
-    $("#showPageButton").checked = Boolean(settings.showPageButton);
-    $("#showChartControls").checked = Boolean(settings.showChartControls);
-    document.querySelectorAll("[data-chart-mode]").forEach((button) => {
-      const active = button.dataset.chartMode === settings.defaultChartMode;
-      button.dataset.active = active ? "true" : "false";
-      button.setAttribute("aria-selected", active ? "true" : "false");
-      button.tabIndex = active ? 0 : -1;
-    });
   };
 
   const renderSnapshots = (latest, snapshots) => {
@@ -217,7 +182,7 @@
   const isAnalyticsUrl = (url) => {
     try {
       const parsed = new URL(url);
-      return parsed.origin === ROUTES.analyticsOrigin && parsed.pathname === ROUTES.analyticsPath;
+      return window.CodexMeterConfig.isAnalyticsRoute(parsed);
     } catch {
       return false;
     }
@@ -247,7 +212,7 @@
   const sendRefreshMessage = async (tabId, openPanel) => {
     try {
       return await chrome.tabs.sendMessage(tabId, {
-        type: "CQC_RUN_ANALYSIS",
+        type: openPanel ? "CQC_OPEN_PANEL" : "CQC_RUN_ANALYSIS",
         openPanel,
       });
     } catch (error) {
@@ -266,6 +231,7 @@
         "icons.js",
         "shared/config.js",
         "domain/usage-domain.js",
+        "domain/quota-history.js",
         "infrastructure/chatgpt-client.js",
         "infrastructure/report-repository.js",
         "application/report-service.js",
@@ -309,26 +275,9 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  $("#showPageButton").addEventListener("change", (event) => {
-    saveSettings({ showPageButton: event.target.checked }).catch((error) => {
-      setStatus(error.message || String(error), "error");
-    });
+  $("#openQuotaHistory").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("history.html") });
   });
-
-  $("#showChartControls").addEventListener("change", (event) => {
-    saveSettings({ showChartControls: event.target.checked }).catch((error) => {
-      setStatus(error.message || String(error), "error");
-    });
-  });
-
-  document.querySelectorAll("[data-chart-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      saveSettings({ defaultChartMode: button.dataset.chartMode }).catch((error) => {
-        setStatus(error.message || String(error), "error");
-      });
-    });
-  });
-
   $("#openAnalytics").addEventListener("click", openAnalytics);
   $("#openPanel").addEventListener("click", () => runActiveAnalysis({ openPanel: true }));
   $("#refresh").addEventListener("click", () => runActiveAnalysis({ openPanel: false }));

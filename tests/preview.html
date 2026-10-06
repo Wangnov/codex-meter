@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codex Meter 本地测试（模拟数据）</title>
+<link rel="stylesheet" href="/codex-meter-extension/content.css">
+<style>body{background:#171717;color:#eee;font:16px system-ui;padding:30px}h2{margin-top:60px}</style>
+<main><h1>Codex Meter 本地测试（模拟数据）</h1><h2>使用详情</h2><button id="test-open">打开测试弹窗</button></main>
+<script>
+let testListener;
+window.chrome={runtime:{onMessage:{addListener:fn=>testListener=fn}},storage:{onChanged:{addListener:()=>{}},local:{
+get:async keys=>{if(typeof keys==='string')keys=[keys];return Object.fromEntries(keys.map(k=>[k,JSON.parse(localStorage.getItem(k)||'null')]))},
+set:async values=>Object.entries(values).forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v))),
+remove:async keys=>keys.forEach(k=>localStorage.removeItem(k)),
+}}};
+</script>
+<script src="/codex-meter-extension/icons.js"></script><script src="/codex-meter-extension/shared/config.js"></script>
+<script src="/codex-meter-extension/domain/usage-domain.js"></script><script src="/codex-meter-extension/domain/quota-history.js"></script>
+<script src="/codex-meter-extension/infrastructure/report-repository.js"></script>
+<script>
+window.CodexMeterConfig.isAnalyticsRoute=()=>true;
+window.CodexMeterChatGptClient={bootstrapLocale:()=> 'zh-CN',getBootstrapToken:()=> 'fixture',apiGet:async path=>{
+if(path==='/backend-api/wham/usage')return {account_id:'fixture-account',user_id:'fixture-user',rate_limit:{primary_window:{used_percent:0,limit_window_seconds:604800,reset_at:1789810353}}};
+if(path.includes('reset-credits'))return {events:[{kind:'used',occurred_at:'2026-09-07T01:09:51Z'}],window_start:'2026-08-13T00:00:00Z'};
+if(path.includes('daily-token'))return {units:'percent',group_by:'day',data:[{date:'2026-09-07',product_surface_usage_values:{cli:57.70276094975651}},{date:'2026-09-08',product_surface_usage_values:{cli:30.84654331306296}},{date:'2026-09-09',product_surface_usage_values:{cli:48.69985387696103}}]};
+return {balance_unit:'credit',data:[{date:'2026-09-07',totals:{credits:25105.471,text_total_tokens:534570000}},{date:'2026-09-08',totals:{credits:13420.796,text_total_tokens:428380000}},{date:'2026-09-09',totals:{credits:21188.462,text_total_tokens:539640000}}]};
+}};
+</script>
+<script src="/codex-meter-extension/application/report-service.js"></script><script src="/codex-meter-extension/content.js"></script>
+<script>document.querySelector('#test-open').onclick=()=>testListener({type:'CQC_RUN_ANALYSIS',openPanel:true},null,()=>{});</script></html>

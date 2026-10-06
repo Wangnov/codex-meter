@@ -165,6 +165,12 @@
     currentCycleList: report.currentCycleList,
     historyList: report.historyList,
     dailyList: report.dailyList,
+    accountScope: report.accountScope,
+    percentageData: report.percentageData,
+    resetEvents: report.resetEvents,
+    resetHistoryStart: report.resetHistoryStart,
+    globalResets: report.globalResets,
+    historyWarnings: report.historyWarnings,
   });
 
   window.CodexMeterDomain = {

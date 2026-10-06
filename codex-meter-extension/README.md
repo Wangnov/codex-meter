@@ -1,44 +1,28 @@
-# Codex Meter
+# Codex Meter 0.2.21 — maintained fork
 
-Local Chrome extension for the ChatGPT Codex analytics page.
+This directory is the unpacked Chrome MV3 extension. Load it directly in `chrome://extensions`; no build step is required.
 
-## What It Does
+See the [repository README](../README.md) for complete installation, usage, privacy, backup and limitation notes.
 
-- Adds a `Codex Meter` button to the right side of the usage details area on `https://chatgpt.com/codex/cloud/settings/analytics`.
-- Opens a native-feeling Codex in-page modal for credits, token totals, cache hit rate, and estimated value.
-- Uses the browser extension popup as a management panel for the in-page button, chart controls, default chart mode, and local snapshots.
-- Keeps the modal at a stable size with a skeleton loading state while data is being fetched.
-- Uses Codex page CSS variables so the modal follows the current light or dark theme where those variables are available.
-- Follows the Codex page locale from `client-bootstrap.locale` / `html[lang]` using official-style locale IDs. Included UI copy: `zh-CN`, `zh-TW`, `zh-HK`, `en-US`, `ja-JP`, `fr-FR`, `ru-RU`, `es-ES`, and `de-DE`, with English fallback.
-- Reads the same private `wham` analytics endpoints used by the page.
-- Shows current-cycle credits, total tokens, input tokens, cache hit rate, estimated USD value, and daily usage rows in the page modal.
-- Saves compact local snapshots in `chrome.storage.local`.
-- Exports the latest page-level data as JSON or CSV.
-- Uses local inline Lucide-style SVG icons; no remote icon script is loaded.
+## Current behavior
 
-The extension does not store the ChatGPT Web bearer token. It extracts the token from the current page only when refreshing data.
+- Canonical page: `https://chatgpt.com/settings/usage?tab=analytics`.
+- One independent fixed text button opens the analysis dialog from local cache.
+- Explicit Refresh is the only usage API collection trigger.
+- No official chart replacement, tooltip enhancements or chart DOM/resize observers.
+- Toolbar popup links to the extension-local quota baseline history page.
+- MV3 background worker archives capture-time baseline samples in extension-origin IndexedDB; it does not poll usage APIs.
+- Ordinary snapshot save failures do not discard fresh data. Existing history is not automatically deleted.
 
-## Install
+The inferred quota baseline is not necessarily the actual historical weekly plan limit. Browser storage is local and finite; export archives regularly.
 
-1. Open `chrome://extensions`.
-2. Enable `Developer mode`.
-3. Click `Load unpacked`.
-4. Select the cloned extension folder:
+## Offline checks
 
-```text
-codex-meter/codex-meter-extension
+From repository root:
+
+```sh
+npm ci --prefix tests
+node --test tests/*.test.cjs
 ```
 
-## Use
-
-1. Open <https://chatgpt.com/codex/cloud/settings/analytics>.
-2. Click the `Codex Meter` button beside the usage details area.
-3. Use the page modal for usage details and export; use the extension popup to manage display settings and local snapshots.
-
-## Notes
-
-- See `ARCHITECTURE.md` for the buildless DDD-style layer split.
-- Licensed under the MIT License.
-- This depends on private ChatGPT Web endpoints and may need updates if OpenAI changes the page internals.
-- This is intentionally local-only. Keep it unpacked unless you want to maintain extension packaging and review.
-- The button uses page structure first, then localized text, then a fixed-position fallback. If it still does not appear, refresh the analytics tab after loading the extension.
+Tests do not use a real ChatGPT account. Browser acceptance is performed separately by the user.

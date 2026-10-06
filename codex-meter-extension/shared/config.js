@@ -8,6 +8,7 @@
     STORAGE_LATEST: "codexQuotaCompassLatest",
     STORAGE_SNAPSHOTS: "codexQuotaCompassSnapshots",
     STORAGE_SETTINGS: "codexMeterSettings",
+    STORAGE_GLOBAL_RESETS: "codexMeterGlobalResets",
   };
 
   const DEFAULT_SETTINGS = {
@@ -24,13 +25,16 @@
 
   const ROUTES = {
     analyticsOrigin: "https://chatgpt.com",
-    analyticsPath: "/codex/cloud/settings/analytics",
-    analyticsUrl: "https://chatgpt.com/codex/cloud/settings/analytics",
+    analyticsPath: "/settings/usage",
+    legacyAnalyticsPath: "/codex/cloud/settings/analytics",
+    analyticsUrl: "https://chatgpt.com/settings/usage?tab=analytics",
   };
 
   const isAnalyticsRoute = (currentLocation = window.location) =>
     currentLocation.origin === ROUTES.analyticsOrigin &&
-    currentLocation.pathname === ROUTES.analyticsPath;
+    (currentLocation.pathname === ROUTES.legacyAnalyticsPath ||
+      (currentLocation.pathname === ROUTES.analyticsPath &&
+        new URLSearchParams(currentLocation.search).get("tab") === "analytics"));
 
   window.CodexMeterConfig = {
     CONFIG,
