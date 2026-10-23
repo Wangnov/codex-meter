@@ -47,15 +47,16 @@
       };
     };
 
-    const labelFromPath = (path) => {
+    const labelFromPath = (path, window) => {
+      const seconds = Number(window?.limit_window_seconds);
+      if (seconds === 604800) return translate("limits.primary");
+      if (seconds === 18000) return translate("limits.secondary");
       const raw = path
         .join(".")
         .replaceAll("_", " ")
         .replace(/\bwindow\b/gi, "")
         .replace(/\s+/g, " ")
         .trim();
-      if (/secondary/i.test(path.join("."))) return translate("limits.secondary");
-      if (/primary/i.test(path.join("."))) return translate("limits.primary");
       return raw || translate("limits.fallback");
     };
 

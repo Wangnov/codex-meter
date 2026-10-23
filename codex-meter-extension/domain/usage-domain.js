@@ -270,7 +270,7 @@
 
     return {
       key: path.join("."),
-      label: labelFromPath?.(path) || path.join("."),
+      label: labelFromPath?.(path, value) || path.join("."),
       role: windowRoleFromPath(path),
       usedPercent,
       remainingPercent,

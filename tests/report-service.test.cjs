@@ -36,7 +36,7 @@ const addDays = (date, days) => {
 
 const normalize = (value) => JSON.parse(JSON.stringify(value));
 
-const createHarness = ({ getDateRange, dailyRows = [] } = {}) => {
+const createHarness = ({ getDateRange, dailyRows = [], usage = { rate_limit: {} } } = {}) => {
   const window = {};
   vm.runInNewContext(reportServiceSource, { Date: FixedDate, window });
 
@@ -46,7 +46,7 @@ const createHarness = ({ getDateRange, dailyRows = [] } = {}) => {
     getBootstrapToken: () => "bootstrap-token",
     apiGet: async (url, token) => {
       requests.push({ token, url });
-      if (url === "/backend-api/wham/usage") return { rate_limit: {} };
+      if (url === "/backend-api/wham/usage") return usage;
       return { data: dailyRows };
     },
   };
@@ -169,4 +169,15 @@ test("旧接口返回的全部 token 字段原样保留", async () => {
   assert.deepEqual(normalize(statsInputs.at(-1)), dailyRows);
   assert.match(requests[1].url, /^\/backend-api\/wham\/analytics\/daily-workspace-usage-counts\?/);
   assert.doesNotMatch(requests[1].url, /percent|token-usage-breakdown/);
+});
+
+test("额度窗口按实际时长命名，不把 primary/secondary 槽位当周期", async () => {
+  const { service } = createHarness({ usage: { rate_limit: {
+    primary_window: { limit_window_seconds: 18000, reset_at: 1791266400, used_percent: 20 },
+    secondary_window: { limit_window_seconds: 604800, reset_at: 1791705600, used_percent: 30 },
+  } } });
+  const report = await service.buildReport();
+  assert.equal(report.primaryWindow.limitWindowSeconds, 604800);
+  assert.equal(report.primaryWindow.label, "limits.primary");
+  assert.equal(report.windows.find((window) => window.limitWindowSeconds === 18000).label, "limits.secondary");
 });
