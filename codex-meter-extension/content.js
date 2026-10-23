@@ -3530,7 +3530,7 @@ modelTable: {
     const models = (stats?.models || []).filter((model) => n(model.tokens) > 0);
     if (!models.length) return "";
     const totals = stats.totals || {};
-    const coverage = Math.round(n(totals.rateCoverage) * 100);
+    const coverage = Math.floor(n(totals.rateCoverage) * 1000) / 10;
     const meta = t("sections.modelsMeta", {
       coverage,
       date: report.tokenRateCardDate || "--",
