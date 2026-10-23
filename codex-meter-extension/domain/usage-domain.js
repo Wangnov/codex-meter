@@ -149,6 +149,79 @@
     return input > 0 ? cached / input : 0;
   };
 
+  const normalizeModelKey = (value) => String(value || "").trim().toLowerCase();
+
+  const isSeparateQuotaModel = (value) => /(?:^|[-_])spark(?:$|[-_])/i.test(String(value || ""));
+
+  const getModelTokenStats = (list = [], rateTable = {}) => {
+    const byModel = new Map();
+
+    list.forEach((row) => {
+      const models = Array.isArray(row?.models) ? row.models : [];
+      models.forEach((modelRow) => {
+        const model = String(modelRow?.model || "unknown").trim() || "unknown";
+        const key = normalizeModelKey(model);
+        const current = byModel.get(key) || {
+          model,
+          tokens: 0,
+          uncachedInputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          creditEquivalent: 0,
+          hasRate: false,
+          separateQuota: isSeparateQuotaModel(model),
+        };
+        current.tokens += tokenTotal(modelRow);
+        current.uncachedInputTokens += n(modelRow?.uncached_text_input_tokens);
+        current.cachedInputTokens += n(modelRow?.cached_text_input_tokens);
+        current.outputTokens += n(modelRow?.text_output_tokens);
+        byModel.set(key, current);
+      });
+    });
+
+    const models = [...byModel.entries()]
+      .map(([key, value]) => {
+        const rate = rateTable[key];
+        const hasRate = Boolean(rate) && !value.separateQuota;
+        const creditEquivalent = hasRate
+          ? (value.uncachedInputTokens * n(rate.uncachedInput) +
+              value.cachedInputTokens * n(rate.cachedInput) +
+              value.outputTokens * n(rate.output)) /
+            1e6
+          : 0;
+        return { ...value, hasRate, creditEquivalent };
+      })
+      .sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model));
+
+    const totals = models.reduce(
+      (sum, model) => {
+        sum.tokens += model.tokens;
+        sum.uncachedInputTokens += model.uncachedInputTokens;
+        sum.cachedInputTokens += model.cachedInputTokens;
+        sum.outputTokens += model.outputTokens;
+        sum.creditEquivalent += model.creditEquivalent;
+        if (model.hasRate) sum.ratedTokens += model.tokens;
+        if (model.separateQuota) sum.separateQuotaTokens += model.tokens;
+        return sum;
+      },
+      {
+        tokens: 0,
+        uncachedInputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        creditEquivalent: 0,
+        ratedTokens: 0,
+        separateQuotaTokens: 0,
+      },
+    );
+    totals.inputTokens = totals.uncachedInputTokens + totals.cachedInputTokens;
+    totals.cacheRatio = totals.inputTokens > 0 ? totals.cachedInputTokens / totals.inputTokens : 0;
+    const eligibleTokens = Math.max(0, totals.tokens - totals.separateQuotaTokens);
+    totals.rateCoverage = eligibleTokens > 0 ? Math.min(1, totals.ratedTokens / eligibleTokens) : 0;
+
+    return { models, totals };
+  };
+
   const formatNumber = (value, locale, digits = 2) => {
     const num = n(value);
     if (Math.abs(num) >= 1e9) return `${(num / 1e9).toFixed(digits)}B`;
@@ -161,6 +234,21 @@
 
   const formatUsd = (credits, usdPerCredit) =>
     `$ ${(n(credits) * n(usdPerCredit)).toFixed(2)}`;
+
+  const DAY_SECONDS = 24 * 60 * 60;
+
+  const isSubDayLimitWindow = (window) => {
+    const seconds = n(window?.limitWindowSeconds);
+    return seconds > 0 && seconds < DAY_SECONDS;
+  };
+
+  const windowRoleFromPath = (path) => {
+    const role = [...path]
+      .reverse()
+      .map((part) => String(part).toLowerCase().replace(/_window$/, ""))
+      .find((part) => /^(primary|secondary|tertiary)$/.test(part));
+    return role || null;
+  };
 
   const normalizeLimitWindow = (value, path, { labelFromPath, locale } = {}) => {
     const usedPercent =
@@ -182,7 +270,8 @@
 
     return {
       key: path.join("."),
-      label: labelFromPath?.(path) || path.join("."),
+      label: labelFromPath?.(path, value) || path.join("."),
+      role: windowRoleFromPath(path),
       usedPercent,
       remainingPercent,
       resetAt: resetAt || null,
@@ -233,6 +322,58 @@
     });
   };
 
+  const isSparkLimit = (limit = {}) => {
+    const name = String(limit.limit_name ?? "").toLowerCase();
+    const feature = String(limit.metered_feature ?? "").toLowerCase();
+    return feature === "codex_bengalfox" || name.includes("gpt-5.3-codex-spark");
+  };
+
+  const extractAdditionalLimitWindows = (additionalRateLimits, options = {}) => {
+    if (!Array.isArray(additionalRateLimits)) return [];
+
+    return additionalRateLimits.flatMap((limit, index) => {
+      if (!isSparkLimit(limit)) return [];
+      const windows = extractLimitWindows(limit.rate_limit || {}, options);
+      if (!windows.length) return [];
+
+      const weeklyCandidates = windows.filter(
+        (window) => window.limitWindowSeconds == null || window.limitWindowSeconds >= DAY_SECONDS,
+      );
+      const shortCandidates = windows.filter(isSubDayLimitWindow);
+      const selectedWeekly = [...weeklyCandidates].sort(
+        (a, b) => n(b.limitWindowSeconds) - n(a.limitWindowSeconds),
+      )[0];
+      const selectedShort = [...shortCandidates].sort(
+        (a, b) => n(b.limitWindowSeconds) - n(a.limitWindowSeconds),
+      )[0];
+      const result = [];
+      if (selectedWeekly) {
+        result.push({
+          ...selectedWeekly,
+          key: `additional_rate_limits.${index}.spark_weekly`,
+          label: "GPT-5.3-Codex-Spark Weekly",
+          source: "spark",
+          kind: "weekly",
+        });
+      }
+      if (selectedShort) {
+        result.push({
+          ...selectedShort,
+          key: `additional_rate_limits.${index}.spark_short`,
+          label: "GPT-5.3-Codex-Spark 5-hour",
+          source: "spark",
+          kind: "short",
+        });
+      }
+      return result;
+    });
+  };
+
+  // Keep every ordinary Codex window. primary/secondary are API slot names;
+  // the card selectors classify them by their reported duration.
+  const extractOrdinaryLimitWindows = (root, options = {}) =>
+    extractLimitWindows(root, options);
+
   const getStats = (list) => {
     const totals = list.reduce(
       (sum, row) => {
@@ -281,6 +422,7 @@
     endDate: report.endDate,
     cycleStartDate: report.cycleStartDate,
     windows: report.windows,
+    customWindows: report.customWindows || [],
     primaryWindow: report.primaryWindow,
     currentStats: report.currentStats,
     historyStats: report.historyStats,
@@ -288,6 +430,10 @@
     currentCycleList: report.currentCycleList,
     historyList: report.historyList,
     dailyList: report.dailyList,
+    modelTokenStats: report.modelTokenStats,
+    currentModelTokenStats: report.currentModelTokenStats,
+    tokenRateCardDate: report.tokenRateCardDate,
+    tokenRateCardUrl: report.tokenRateCardUrl,
   });
 
   window.CodexMeterDomain = {
@@ -297,11 +443,15 @@
     chartSeries,
     chartSummary,
     compactReport,
+    extractAdditionalLimitWindows,
     extractLimitWindows,
+    extractOrdinaryLimitWindows,
     formatCredits,
     formatNumber,
     formatUsd,
+    getModelTokenStats,
     getStats,
+    isSubDayLimitWindow,
     localDate,
     n,
     tokenInput,

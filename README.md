@@ -118,6 +118,12 @@ find codex-meter-extension -name '*.js' -maxdepth 3 -print0 | xargs -0 -n1 node 
 # manifest 检查
 node -e "JSON.parse(require('fs').readFileSync('codex-meter-extension/manifest.json','utf8'))"
 
+# 领域计算与接口适配测试
+node tests/config.test.js
+node tests/route-bootstrap.test.js
+node tests/usage-domain.test.js
+node tests/report-service.test.js
+
 # 本地打包
 rm -f codex-meter-extension.zip
 (cd codex-meter-extension && zip -r ../codex-meter-extension.zip .)
@@ -215,6 +221,12 @@ find codex-meter-extension -name '*.js' -maxdepth 3 -print0 | xargs -0 -n1 node 
 # manifest check
 node -e "JSON.parse(require('fs').readFileSync('codex-meter-extension/manifest.json','utf8'))"
 
+# Domain and endpoint adaptation tests
+node tests/config.test.js
+node tests/route-bootstrap.test.js
+node tests/usage-domain.test.js
+node tests/report-service.test.js
+
 # local package
 rm -f codex-meter-extension.zip
 (cd codex-meter-extension && zip -r ../codex-meter-extension.zip .)
@@ -227,3 +239,9 @@ The Chrome Web Store GitHub Actions workflow runs in two cases:
 - Published non-prerelease `v*` GitHub Releases
 
 The release-triggered publish checks that the release tag matches the `manifest.json` version and that there is no pending Chrome Web Store submission before uploading.
+
+### 模型 Token 明细与标准速度估值
+
+当账号提供可选的 workspace 模型明细时，面板展示未缓存输入、缓存输入、输出、缓存命中率和模型汇总；接口不可用时保留原有图表与报表。普通 Codex 周/短周期和 Spark 单独显示。
+
+等值 Credits 采用 [2026-10-23 官方标准速度费率](https://learn.chatgpt.com/docs/pricing)，未知模型显示未定价；它不包含 Fast/Ultrafast 倍率，也不代表实际账单或套餐内额度，因此不会用模型估值反推套餐周容量。原始逐日模型明细不写入快照，只保存汇总。

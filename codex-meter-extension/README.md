@@ -14,6 +14,10 @@ Local Chrome extension for the usage analytics page in ChatGPT settings.
 - Follows the ChatGPT page locale from `client-bootstrap.locale` / `html[lang]` using official-style locale IDs. Included UI copy: `zh-CN`, `zh-TW`, `zh-HK`, `en-US`, `ja-JP`, `fr-FR`, `ru-RU`, `es-ES`, and `de-DE`, with English fallback.
 - Reads the private same-origin `wham` usage endpoints available to the page.
 - Shows current-cycle credits, total tokens, input tokens, cache hit rate, estimated USD value, and daily usage rows in the page modal.
+- Separately shows ordinary Codex and Spark 5-hour/weekly quota windows without mixing their percentages.
+- Reads the optional per-model token breakdown endpoint and shows uncached input, cached input, output, and a non-billing credit-equivalent estimate. Models with separate limits such as Spark are excluded from the general weekly estimate.
+- Hides model-weighted cards and the model table when plans such as Pro do not expose a workspace model breakdown.
+- Notes that quota percentages are near real time while model token and Credits details may lag, making projections approximate.
 - Saves compact local snapshots in `chrome.storage.local`.
 - Exports the latest page-level data as JSON or CSV.
 - Uses local inline Lucide-style SVG icons; no remote icon script is loaded.
@@ -46,3 +50,9 @@ codex-meter/codex-meter-extension
 - This depends on private ChatGPT Web endpoints and may need updates if OpenAI changes the page internals.
 - This is intentionally local-only. Keep it unpacked unless you want to maintain extension packaging and review.
 - The button targets the Usage history section of the current ChatGPT settings page. If it does not appear after loading the extension, refresh that tab once.
+
+### 模型 Token 明细与标准速度估值
+
+当账号提供可选的 workspace 模型明细时，面板展示未缓存输入、缓存输入、输出、缓存命中率和模型汇总；接口不可用时保留原有图表与报表。普通 Codex 周/短周期和 Spark 单独显示。
+
+等值 Credits 采用 [2026-10-23 官方标准速度费率](https://learn.chatgpt.com/docs/pricing)，未知模型显示未定价；它不包含 Fast/Ultrafast 倍率，也不代表实际账单或套餐内额度，因此不会用模型估值反推套餐周容量。原始逐日模型明细不写入快照，只保存汇总。

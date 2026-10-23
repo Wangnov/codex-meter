@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_SCRIPT_VERSION = "0.6.0";
+  const CONTENT_SCRIPT_VERSION = "0.6.1-model-details";
   const ENABLE_CHART_TOOLTIP_ENHANCER = false;
   const CHART_IDS = {
     controls: "codex-meter-chart-controls",
@@ -219,7 +219,10 @@
         currentMeta: "从 {date} 开始统计",
         history: "周期外历史用量",
         historyRange: "{start} 至 {end}",
-      },
+
+models: "本周期各模型 Token 用量",
+modelsMeta: "费率覆盖 {coverage}% · 费率表 {date}",
+},
       metrics: {
         remaining: ["本周期剩余额度比例", "来自官方每周限额进度。"],
         credits: ["本周期已用 Credits", "按每日用量明细加总。"],
@@ -234,7 +237,10 @@
         projectionLag: "每日明细可能滞后，稍后更稳。",
         cache: ["输入缓存命中率", "缓存输入占全部输入 Tokens 的比例。"],
         usd: ["推算周价值", "按推算周 Credits × US$40/1000 估算。"],
-      },
+
+weightedUsage: ["模型加权用量", "按标准速度费率估算，不含速度倍率；不代表套餐额度或实际账单。"],
+weightedUnavailable: ["暂不可用", "等待可用的模型 Token 明细与已知费率。"],
+},
       table: {
         empty: "这个时间段还没有 Codex 用量记录。",
         date: "日期",
@@ -246,7 +252,28 @@
         turns: "轮数",
         total: "合计",
       },
-    },
+
+dataDelayNotice: "额度百分比接近实时；模型用量与 Credits 明细可能延迟，因此推算结果存在误差。",
+quota: {
+        weekly: ["每周剩余额度比例", "来自官方普通 Codex 每周限额进度。"],
+        short: ["5 小时剩余额度比例", "来自官方普通 Codex 5 小时限额进度。"],
+        spark: ["Spark Weekly 剩余额度比例", "来自官方 GPT-5.3-Codex-Spark Weekly 限额进度。"],
+        sparkShort: ["Spark 5 小时剩余额度比例", "来自官方 GPT-5.3-Codex-Spark 5 小时限额进度。"],
+        unavailable: "未返回",
+        reset: "重置：{time}",
+      },
+modelTable: {
+        model: "模型",
+        tokens: "总 Tokens",
+        uncachedInput: "未缓存输入",
+        cachedInput: "缓存输入",
+        output: "输出",
+        cache: "缓存命中",
+        equivalent: "等值 Credits",
+        separate: "独立额度",
+        unavailable: "未定价",
+      },
+},
     "zh-TW": {
       usageDetails: "使用詳情",
       personalUsage: "個人使用",
@@ -445,7 +472,10 @@
         currentMeta: "Counting from {date}",
         history: "Usage outside this cycle",
         historyRange: "{start} to {end}",
-      },
+
+models: "Token usage by model this cycle",
+modelsMeta: "Rate coverage {coverage}% · rate card {date}",
+},
       metrics: {
         remaining: ["Remaining quota this cycle", "From the official weekly quota progress."],
         credits: ["Credits used this cycle", "Totaled from the daily usage details."],
@@ -460,7 +490,10 @@
         projectionLag: "Daily details may lag; refresh later.",
         cache: ["Input cache hit rate", "Cached input as a share of all input Tokens."],
         usd: ["Projected weekly value", "Based on projected weekly Credits at US$40/1000."],
-      },
+
+weightedUsage: ["Model-weighted usage", "Standard-speed credit equivalent only, without speed multipliers; not included quota or billed Credits."],
+weightedUnavailable: ["Unavailable", "Waiting for per-model Tokens and known rates."],
+},
       table: {
         empty: "No Codex usage was recorded in this date range.",
         date: "Date",
@@ -472,7 +505,28 @@
         turns: "Turns",
         total: "Total",
       },
-    },
+
+dataDelayNotice: "Quota percentages are near real time; model usage and Credits details may lag, so projections can differ from the final values.",
+quota: {
+        weekly: ["Weekly quota remaining", "From the official ordinary Codex weekly quota progress."],
+        short: ["5-hour quota remaining", "From the official ordinary Codex 5-hour quota progress."],
+        spark: ["Spark Weekly quota remaining", "From the official GPT-5.3-Codex-Spark Weekly quota progress."],
+        sparkShort: ["Spark 5-hour quota remaining", "From the official GPT-5.3-Codex-Spark 5-hour quota progress."],
+        unavailable: "Unavailable",
+        reset: "Resets: {time}",
+      },
+modelTable: {
+        model: "Model",
+        tokens: "Total Tokens",
+        uncachedInput: "Uncached input",
+        cachedInput: "Cached input",
+        output: "Output",
+        cache: "Cache hit",
+        equivalent: "Credit equivalent",
+        separate: "Separate quota",
+        unavailable: "Unpriced",
+      },
+},
     "ja-JP": {
       usageDetails: "使用状況の詳細",
       personalUsage: "個人の使用状況",
@@ -3296,7 +3350,9 @@
 
   const renderReportBody = (report) => `
       <div class="cqc-status">${icon("check")}<span>${escapeHtml(t("updated", { time: report.capturedAtLocal }))}</span></div>
+      <div class="cqc-data-delay-notice">${icon("alert")}<span>${escapeHtml(t("dataDelayNotice"))}</span></div>
       ${renderSummaryCards(report)}
+      ${renderModelTokenSection(report)}
       ${renderDailySection(
         t("sections.current"),
         report.currentCycleList,
@@ -3318,9 +3374,42 @@
     `;
 
   const weeklyLimitWindow = (report) =>
-    (report.windows || []).find((window) => n(window.limitWindowSeconds) >= 6 * 24 * 60 * 60) ||
-    report.primaryWindow ||
+    (report.windows || []).find(
+      (window) =>
+        n(window.limitWindowSeconds) >= 6 * 24 * 60 * 60 &&
+        !/spark/i.test(`${window?.key || ""} ${window?.label || ""}`),
+    ) ||
+    (n(report.primaryWindow?.limitWindowSeconds) >= 6 * 24 * 60 * 60
+      ? report.primaryWindow
+      : null) ||
     null;
+
+  const isShortLimitWindow = (window) => {
+    // primary/secondary identify API slots, not durations. In particular,
+    // secondary_window may be weekly and must never also populate the 5h card.
+    const seconds = Number(window?.limitWindowSeconds);
+    return Number.isFinite(seconds) && seconds > 0 && seconds < 24 * 60 * 60;
+  };
+
+  const shortLimitWindow = (report) =>
+    (report.windows || []).find(isShortLimitWindow) || null;
+
+  const sparkLimitWindow = (report, kind) =>
+    (report.customWindows || []).find(
+      (window) => window.source === "spark" && window.kind === kind,
+    ) || null;
+
+  const renderQuotaCard = (iconName, key, limitWindow, tone) => {
+    const remaining = limitWindow?.remainingPercent;
+    const value = remaining == null ? t("quota.unavailable") : `${remaining.toFixed(1)}%`;
+    const hint = [
+      t(`quota.${key}.1`),
+      limitWindow?.resetAtLocal ? t("quota.reset", { time: limitWindow.resetAtLocal }) : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return renderMetricCard(iconName, t(`quota.${key}.0`), value, tone, false, hint);
+  };
 
   const rowCredits = (row) => n(row?.totals?.credits);
 
@@ -3411,16 +3500,95 @@
   const renderSummaryCards = (report) => {
     const stats = report.currentStats;
     const weeklyWindow = weeklyLimitWindow(report);
+    const shortWindow = shortLimitWindow(report);
+    const sparkWindow = sparkLimitWindow(report, "weekly");
+    const sparkShortWindow = sparkLimitWindow(report, "short");
     const projection = weeklyProjection(report);
-    const remaining = weeklyWindow?.remainingPercent;
+    const weighted = { current: n(report.currentModelTokenStats?.totals?.creditEquivalent) };
+    const weightedUnavailable = escapeHtml(t("metrics.weightedUnavailable.0"));
+    const hasModelTokenData = (report.currentModelTokenStats?.models || []).some(
+      (model) => n(model.tokens) > 0,
+    );
     return `
       <div class="cqc-grid">
-        ${renderMetricCard("gauge", t("metrics.remaining.0"), remaining == null ? "N/A" : `${remaining.toFixed(1)}%`, "fresh", true, t("metrics.remaining.1"))}
+        ${renderQuotaCard("gauge", "weekly", weeklyWindow, "fresh")}
+        ${renderQuotaCard("clock", "short", shortWindow, "blue")}
+        ${renderQuotaCard("sparkles", "spark", sparkWindow, "amber")}
+        ${renderQuotaCard("clock", "sparkShort", sparkShortWindow, "amber")}
         ${renderMetricCard("coins", t("metrics.credits.0"), fmtCredits(stats.credits, 2), "mint", false, t("metrics.credits.1"))}
         ${renderMetricCard("cpu", t("metrics.tokens.0"), fmtNum(stats.tokens), "blue", false, t("metrics.tokens.1"))}
         ${renderMetricCard("trendingUp", t("metrics.projected.0"), projection.value, "amber", false, projection.hint)}
         ${renderMetricCard("layers", t("metrics.cache.0"), `${(stats.cacheRatio * 100).toFixed(1)}%`, "violet", false, t("metrics.cache.1"))}
         ${renderMetricCard("wallet", t("metrics.usd.0"), projection.usdValue, "ink", false, projection.usdHint)}
+        ${hasModelTokenData ? renderMetricCard("cpu", t("metrics.weightedUsage.0"), weighted.current > 0 ? `~${fmtCredits(weighted.current, weighted.current >= 1000 ? 0 : 1)}` : weightedUnavailable, "blue", false, t("metrics.weightedUsage.1")) : ""}
+      </div>
+    `;
+  };
+
+  const renderModelTokenSection = (report) => {
+    const stats = report.currentModelTokenStats;
+    const models = (stats?.models || []).filter((model) => n(model.tokens) > 0);
+    if (!models.length) return "";
+    const totals = stats.totals || {};
+    const coverage = Math.floor(n(totals.rateCoverage) * 1000) / 10;
+    const meta = t("sections.modelsMeta", {
+      coverage,
+      date: report.tokenRateCardDate || "--",
+    });
+    return `
+      <div class="cqc-section-title">
+        <span>${icon("cpu")}${escapeHtml(t("sections.models"))}</span>
+        <span>${escapeHtml(meta)}</span>
+      </div>
+      <div class="cqc-table-wrap">
+        <table class="cqc-table cqc-model-table">
+          <thead>
+            <tr>
+              <th>${escapeHtml(t("modelTable.model"))}</th>
+              <th>${escapeHtml(t("modelTable.tokens"))}</th>
+              <th>${escapeHtml(t("modelTable.uncachedInput"))}</th>
+              <th>${escapeHtml(t("modelTable.cachedInput"))}</th>
+              <th>${escapeHtml(t("modelTable.output"))}</th>
+              <th>${escapeHtml(t("modelTable.cache"))}</th>
+              <th>${escapeHtml(t("modelTable.equivalent"))}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${models
+              .map((model) => {
+                const input = n(model.uncachedInputTokens) + n(model.cachedInputTokens);
+                const modelCacheRatio = input > 0 ? n(model.cachedInputTokens) / input : 0;
+                const equivalent = model.separateQuota
+                  ? t("modelTable.separate")
+                  : model.hasRate
+                    ? fmtCredits(model.creditEquivalent, model.creditEquivalent >= 1000 ? 0 : 2)
+                    : t("modelTable.unavailable");
+                return `
+                  <tr>
+                    <td class="cqc-model-name">${escapeHtml(model.model)}</td>
+                    <td class="cqc-mono">${fmtNum(model.tokens)}</td>
+                    <td class="cqc-mono">${fmtNum(model.uncachedInputTokens)}</td>
+                    <td class="cqc-mono">${fmtNum(model.cachedInputTokens)}</td>
+                    <td class="cqc-mono">${fmtNum(model.outputTokens)}</td>
+                    <td class="cqc-mono">${(modelCacheRatio * 100).toFixed(0)}%</td>
+                    <td class="cqc-mono">${escapeHtml(equivalent)}</td>
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>${escapeHtml(t("table.total"))}</td>
+              <td class="cqc-mono">${fmtNum(totals.tokens)}</td>
+              <td class="cqc-mono">${fmtNum(totals.uncachedInputTokens)}</td>
+              <td class="cqc-mono">${fmtNum(totals.cachedInputTokens)}</td>
+              <td class="cqc-mono">${fmtNum(totals.outputTokens)}</td>
+              <td class="cqc-mono">${(n(totals.cacheRatio) * 100).toFixed(0)}%</td>
+              <td class="cqc-mono">${fmtCredits(totals.creditEquivalent, totals.creditEquivalent >= 1000 ? 0 : 2)}</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     `;
   };
