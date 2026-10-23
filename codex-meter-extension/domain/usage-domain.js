@@ -30,6 +30,119 @@
   const tokenInput = (obj = {}) =>
     n(obj.cached_text_input_tokens) + n(obj.uncached_text_input_tokens);
 
+  const chartMetricValue = (totals = {}, metric) => {
+    if (metric === "tokens") return tokenTotal(totals);
+    if (metric === "credits" || metric === "usd") return n(totals.credits);
+    if (metric === "turns") return n(totals.turns);
+    return 0;
+  };
+
+  const chartValueTolerance = (value) =>
+    Math.max(1e-9, Math.abs(n(value)) * 1e-12);
+
+  const addChartSeriesValue = (seriesByKey, key, label, value) => {
+    const amount = n(value);
+    if (!(amount > 0)) return;
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      const current = seriesByKey.get("unclassified");
+      seriesByKey.set("unclassified", {
+        key: "unclassified",
+        label: "",
+        value: n(current?.value) + amount,
+      });
+      return;
+    }
+    const current = seriesByKey.get(normalizedKey);
+    seriesByKey.set(normalizedKey, {
+      key: normalizedKey,
+      label:
+        normalizedKey === "unclassified"
+          ? ""
+          : current?.label || String(label || normalizedKey),
+      value: n(current?.value) + amount,
+    });
+  };
+
+  const chartSeries = (row = {}, metric, grouping) => {
+    const totals = row.totals || {};
+    const total = chartMetricValue(totals, metric);
+    if (grouping === "total") {
+      return total > 0 ? [{ key: "total", label: "", value: total }] : [];
+    }
+
+    const seriesByKey = new Map();
+    if (grouping === "models" || grouping === "clients") {
+      const entries = Array.isArray(row[grouping]) ? row[grouping] : [];
+      const identityField = grouping === "models" ? "model" : "client_id";
+      entries.forEach((entry) => {
+        if (!entry || typeof entry !== "object") return;
+        const identity = entry[identityField];
+        addChartSeriesValue(seriesByKey, identity, identity, chartMetricValue(entry, metric));
+      });
+    } else if (grouping === "tokens" && metric === "tokens") {
+      addChartSeriesValue(
+        seriesByKey,
+        "uncachedInput",
+        "Uncached input",
+        totals.uncached_text_input_tokens,
+      );
+      addChartSeriesValue(
+        seriesByKey,
+        "cachedInput",
+        "Cached input",
+        totals.cached_text_input_tokens,
+      );
+      addChartSeriesValue(seriesByKey, "output", "Output", totals.text_output_tokens);
+    }
+
+    const groupedTotal = [...seriesByKey.values()].reduce(
+      (sum, series) => sum + n(series.value),
+      0,
+    );
+    const residual = total - groupedTotal;
+    if (residual > chartValueTolerance(total)) {
+      addChartSeriesValue(seriesByKey, "unclassified", "", residual);
+    }
+    return [...seriesByKey.values()];
+  };
+
+  const chartSummary = (rows = [], metric, grouping) => {
+    const seriesByKey = new Map();
+    let reportedTotal = 0;
+    let hasMismatch = false;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const reportedValue = chartMetricValue(row?.totals || {}, metric);
+      const dailySeries = chartSeries(row, metric, grouping);
+      const dailySeriesTotal = dailySeries.reduce(
+        (sum, series) => sum + n(series.value),
+        0,
+      );
+      reportedTotal += reportedValue;
+      if (dailySeriesTotal - reportedValue > chartValueTolerance(reportedValue)) {
+        hasMismatch = true;
+      }
+      dailySeries.forEach((series) => {
+        addChartSeriesValue(seriesByKey, series.key, series.label, series.value);
+      });
+    });
+    const total = [...seriesByKey.values()].reduce(
+      (sum, series) => sum + n(series.value),
+      0,
+    );
+    const series = [...seriesByKey.values()]
+      .map((item) => ({
+        ...item,
+        share: total > 0 ? item.value / total : 0,
+      }))
+      .sort((a, b) => {
+        const valueDelta = b.value - a.value;
+        if (valueDelta !== 0) return valueDelta;
+        return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+      });
+    return { series, total, reportedTotal, hasMismatch };
+  };
+
   const cacheRatio = (obj = {}) => {
     const cached = n(obj.cached_text_input_tokens);
     const input = tokenInput(obj);
@@ -272,6 +385,14 @@
         sum.inputTokens += tokenInput(rowTotals);
         sum.cachedInputTokens += n(rowTotals.cached_text_input_tokens);
         sum.uncachedInputTokens += n(rowTotals.uncached_text_input_tokens);
+        sum.outputTokens += n(rowTotals.text_output_tokens);
+        sum.unclassifiedTokens += Math.max(
+          0,
+          tokenTotal(rowTotals) -
+            n(rowTotals.cached_text_input_tokens) -
+            n(rowTotals.uncached_text_input_tokens) -
+            n(rowTotals.text_output_tokens),
+        );
         return sum;
       },
       {
@@ -282,6 +403,8 @@
         inputTokens: 0,
         cachedInputTokens: 0,
         uncachedInputTokens: 0,
+        outputTokens: 0,
+        unclassifiedTokens: 0,
       },
     );
     totals.cacheRatio = totals.inputTokens > 0 ? totals.cachedInputTokens / totals.inputTokens : 0;
@@ -316,6 +439,9 @@
   window.CodexMeterDomain = {
     addDays,
     cacheRatio,
+    chartMetricValue,
+    chartSeries,
+    chartSummary,
     compactReport,
     extractAdditionalLimitWindows,
     extractLimitWindows,

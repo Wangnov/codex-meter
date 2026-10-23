@@ -49,13 +49,38 @@ jobs:
           (cd codex-meter-extension && zip -r ../codex-meter-extension.zip .)
           unzip -t codex-meter-extension.zip
 
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v2
+      - name: Set up Python for Google authentication
+        uses: actions/setup-python@v5
         with:
-          credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          python-version: '3.12'
+
+      - name: Install Google authentication library
+        run: python -m pip install --disable-pip-version-check 'google-auth[requests]>=2.38,<3'
+
+      - name: Authenticate for Chrome Web Store
+        id: auth
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from google.auth.transport.requests import Request
+          from google.oauth2 import service_account
+
+          info = json.loads(os.environ['SERVICE_ACCOUNT_JSON'])
+          info['token_uri'] = 'https://oauth2.googleapis.com/token'
+          credentials = service_account.Credentials.from_service_account_info(
+              info, scopes=['https://www.googleapis.com/auth/chromewebstore']
+          )
+          credentials.refresh(Request())
+          if not credentials.token:
+              raise RuntimeError('Google OAuth did not return an access token.')
+          print(f'::add-mask::{credentials.token}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'access_token={credentials.token}\n')
+          print('Chrome Web Store access token acquired.')
+          PY
 
       - name: Check Chrome Web Store status
         env:

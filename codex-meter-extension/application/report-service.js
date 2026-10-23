@@ -5,11 +5,48 @@
     chatGptClient,
     config,
     domain,
+    getDateRange,
     getPageLocale,
     pageHref,
     reportRepository,
     translate,
   }) => {
+    const parseIsoDate = (value) => {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+      const date = new Date(`${value}T00:00:00.000Z`);
+      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
+      return date;
+    };
+
+    const selectedRequestRange = async (today) => {
+      if (typeof getDateRange !== "function") return null;
+
+      let selected;
+      try {
+        selected = await getDateRange();
+      } catch {
+        return null;
+      }
+
+      const selectedStart = parseIsoDate(selected?.startDate);
+      const selectedEnd = parseIsoDate(selected?.endDate);
+      if (
+        !selectedStart ||
+        !selectedEnd ||
+        selected.startDate > selected.endDate ||
+        selected.startDate > today ||
+        selected.endDate > today
+      ) {
+        return null;
+      }
+
+      selectedEnd.setUTCDate(selectedEnd.getUTCDate() + 1);
+      return {
+        startDate: selected.startDate,
+        endDate: selectedEnd.toISOString().slice(0, 10),
+      };
+    };
+
     const labelFromPath = (path) => {
       const raw = path
         .join(".")
@@ -27,8 +64,13 @@
       if (!token) throw new Error(translate("noToken"));
 
       const now = new Date();
-      const endDate = domain.localDate(domain.addDays(now, 1));
-      const startDate = domain.localDate(domain.addDays(now, -config.LOOKBACK_DAYS));
+      const defaultEndDate = domain.localDate(domain.addDays(now, 1));
+      const defaultStartDate = domain.localDate(domain.addDays(now, -config.LOOKBACK_DAYS));
+      const selectedRange = await selectedRequestRange(domain.localDate(now));
+      const startDate =
+        selectedRange?.startDate < defaultStartDate ? selectedRange.startDate : defaultStartDate;
+      const endDate =
+        selectedRange?.endDate > defaultEndDate ? selectedRange.endDate : defaultEndDate;
       const usage = await chatGptClient.apiGet("/backend-api/wham/usage", token);
       const windows = domain.extractOrdinaryLimitWindows(usage?.rate_limit || {}, {
         labelFromPath,
