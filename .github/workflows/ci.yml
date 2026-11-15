@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 26.6.0
+      - name: Install test dependencies
+        run: npm ci --prefix tests --ignore-scripts
       - name: Tests
         run: node --test tests/*.test.cjs tests/*.test.js
       - name: Extension syntax and manifest

@@ -415,6 +415,7 @@
 
   const compactReport = (report) => ({
     id: report.id,
+    accountScope: report.accountScope,
     capturedAt: report.capturedAt,
     capturedAtLocal: report.capturedAtLocal,
     pageUrl: report.pageUrl,

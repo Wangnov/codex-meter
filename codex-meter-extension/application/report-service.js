@@ -116,6 +116,7 @@
 
       return {
         id: `${Date.now()}`,
+        accountScope: usage?.account_id && usage?.user_id ? `${usage.account_id}:${usage.user_id}` : null,
         capturedAt: now.toISOString(),
         capturedAtLocal: now.toLocaleString(getPageLocale()),
         pageUrl: pageHref(),

@@ -320,6 +320,7 @@
         "infrastructure/usage-page.js",
         "infrastructure/report-repository.js",
         "application/report-service.js",
+        "application/quota-archive-service.js",
         "content.js",
       ],
     });
@@ -380,6 +381,22 @@
     });
   });
 
+  $("#openQuotaHistory").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("history.html") });
+  });
+  $("#captureQuotaArchive").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const tab = await activeTab();
+      if (!tab?.id || !isAnalyticsUrl(tab.url)) throw new Error(t("status.openFirst"));
+      setStatus("正在记录额度基准 / Capturing baseline…", "loading");
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "CQC_CAPTURE_QUOTA_ARCHIVE" });
+      if (!response?.ok) throw new Error(response?.error || "归档失败 / Archive failed");
+      setStatus("已保存本地长期归档 / Archived locally");
+    } catch (error) { setStatus(error.message || String(error), "error"); }
+    finally { button.disabled = false; }
+  });
   $("#openAnalytics").addEventListener("click", openAnalytics);
   $("#openPanel").addEventListener("click", () => runActiveAnalysis({ openPanel: true }));
   $("#refresh").addEventListener("click", () => runActiveAnalysis({ openPanel: false }));

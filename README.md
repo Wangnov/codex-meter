@@ -245,3 +245,9 @@ The release-triggered publish checks that the release tag matches the `manifest.
 当账号提供可选的 workspace 模型明细时，面板展示未缓存输入、缓存输入、输出、缓存命中率和模型汇总；接口不可用时保留原有图表与报表。普通 Codex 周/短周期和 Spark 单独显示。
 
 等值 Credits 采用 [2026-10-23 官方标准速度费率](https://learn.chatgpt.com/docs/pricing)，未知模型显示未定价；它不包含 Fast/Ultrafast 倍率，也不代表实际账单或套餐内额度，因此不会用模型估值反推套餐周容量。原始逐日模型明细不写入快照，只保存汇总。
+
+## 额度基准长期归档（可选）
+
+工具栏弹窗新增“记录当前基准”和“本地历史与导出”，保留主线官方图表与刷新行为。先刷新报告，再手动记录；每次记录额外读取账号和历史百分比（两个请求），不会新增自动采集。独立 IndexedDB 保留采集时的日样本及换算基准，可按账号查看和导出 JSON，兼容旧维护版归档。反算基准不是官方真实周额度；历史百分比可能重新归一化。存储为本机有限容量，卸载/清除数据可能丢失，请定期备份。详见 [归档说明](docs/quota-archive.md)。
+
+Optional baseline archive: capture explicitly from the toolbar popup after refreshing a report (two additional read-only requests). Official charts and upstream refresh behavior are unchanged. An extension-local IndexedDB history page supports account filtering and JSON export; inferred baselines are not actual weekly capacity. See the linked design notes for timing, retention, migration and privacy limitations.
