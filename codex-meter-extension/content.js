@@ -3145,6 +3145,19 @@ modelTable: {
     if (ensureChromeRuntimeListener.didInstall) return;
     ensureChromeRuntimeListener.didInstall = true;
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === "CQC_CAPTURE_QUOTA_ARCHIVE") {
+        if (!isAnalyticsRoute()) { sendResponse({ ok: false, error: "请先打开分析页。" }); return false; }
+        window.CodexMeterQuotaArchiveService.capture({
+          report: latestReport,
+          client: chatGptClient,
+          persist: async (report) => {
+            const result = await chrome.runtime.sendMessage({ type: "CQC_ARCHIVE_REPORT", report });
+            if (!result?.ok) throw new Error(result?.error || "归档失败");
+          },
+        }).then(() => sendResponse({ ok: true }),
+          (error) => sendResponse({ ok: false, error: error.message || String(error) }));
+        return true;
+      }
       if (message?.type !== "CQC_RUN_ANALYSIS") return false;
       runAnalysis({ openPanel: message.openPanel !== false })
         .then((report) => sendResponse({ ok: true, report: compactReport(report) }))
